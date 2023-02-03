@@ -32,23 +32,11 @@
   (run/start)
   nil)
 
-(defn delete-queues-and-restart!
-  "Restarts system without spamming repl."
-  ([]
-   (-> (graph)
-       (:queues)
-       (keys)
-       (delete-queues-and-restart!)))
-  ([ids]
-   (let [queues (-> (graph)
-                    (:queues)
-                    (select-keys ids)
-                    (vals))]
-     (stop!)
-     (log/info "Deleting all queues and restarting...")
-     (doseq [q queues]
-       (q/delete-queue! q true))
-     (start!))
-   nil))
-
-
+(defn delete-graph-and-restart!
+  []
+  (let [g (graph)]
+    (stop!)
+    (log/info "Deleting system graph and restarting...")
+    (q/delete-graph-queues! g)
+    (start!))
+  nil)

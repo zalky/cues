@@ -8,7 +8,7 @@
 
 (defmethod q/processor ::processor
   [{:keys [system]} {msg :in}]
-  {:out (assoc msg :processed true)})
+  {:out (assoc-in msg [:q/topics ::doc :processed] true)})
 
 (defmethod q/processor ::doc-store
   [{{db :db} :opts}
@@ -21,6 +21,7 @@
   [db]
   {:source     ::s1
    :tx-queue   ::tx
+   :queue-path "data/example"
    :processors [{:id ::s1}
                 {:id  ::processor
                  :in  {::s1 :in}

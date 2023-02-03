@@ -22,18 +22,13 @@
            [net.openhft.chronicle.queue.impl.single SingleChronicleQueue StoreTailer]
            net.openhft.chronicle.queue.util.FileUtil))
 
-(def queues-path
+(def queue-path-default
   "data/queues/")
 
 (defn absolute-path?
   [x]
   (and (string? x)
        (str/starts-with? x "/")))
-
-(defn queue-path?
-  [x]
-  (and (string? x)
-       (str/starts-with? x queues-path)))
 
 (defn queue?
   [x]
@@ -62,10 +57,14 @@
     (string? id)            id))
 
 (defn queue-path
-  [id]
-  {:pre [(not (absolute-path? id))
-         (not (absolute-path? queues-path))]}
-  (str queues-path (id->str id)))
+  [{id              :id
+    {p :queue-path} :opts}]
+  {:pre [(not (absolute-path? p))
+         (not (absolute-path? id))
+         (not (absolute-path? queue-path-default))]}
+  (-> (or p queue-path-default)
+      (io/file (id->str id))
+      (str)))
 
 (defn- codec
   []
@@ -110,8 +109,8 @@
   ([id]
    (queue id nil))
   ([id opts*]
-   (let [path (queue-path id)
-         opts (queue-opts opts*)
+   (let [opts (queue-opts opts*)
+         path (queue-path {:id id :opts opts})
          q    (queue/make path opts)
          i    (last-index q)]
      {:type       ::queue
@@ -217,40 +216,6 @@
        (last-read-index)
        (to-index tailer))
   nil)
-
-(defn delete-queue!
-  "Caution: failing to purge the queue controller when deleting a queue
-  will cause blocking to break the next time the queue is made."
-  ([queue]
-   (delete-queue! queue false))
-  ([{:keys [id]
-     :as   queue} force]
-   {:pre [(queue? queue)]}
-   (let [p (queue-path id)]
-     (when (or force (util/prompt-delete-data! p))
-       (close! queue)
-       (controllers/purge-controller id)
-       (util/delete-file (io/file p))))))
-
-(defn delete-all-queues!
-  "Caution: failing to purge the queue controller when deleting a queue
-  will cause blocking to break the next time the queue is made."
-  []
-  (when (util/prompt-delete-data! queues-path)
-    (reset! controllers/cache {})
-    (util/delete-file (io/file queues-path))))
-
-(defn unused-queue-files
-  [{id :id}]
-  (let [p (queue-path id)]
-    (-> (io/file p)
-        (FileUtil/removableRollFileCandidates)
-        (.collect (Collectors/toList)))))
-
-(defn delete-unused-queue-files!
-  [queue]
-  (doseq [^File f (unused-queue-files queue)]
-    (.delete f)))
 
 (defn read
   "Reads message from tailer, inserting index into message."
@@ -672,9 +637,11 @@
 
 (defmethod processor-impl ::join-fork
   ;; Guarantees idempotency via backing queue.
-  [{:keys [id] :as process}]
+  [{:keys [id config] :as process}]
   (let [stop (atom nil)
-        q    (queue id {:transient true})]
+        p    (:queue-path config)
+        q    (queue id {:transient  true
+                        :queue-path p})]
     (assoc process
            :stop stop
            :process-loops #(join-fork process stop q)
@@ -769,8 +736,9 @@
     (map (partial get-one-q g) ids)))
 
 (defn- build-config
-  [process]
-  (select-keys process [:id :in :out :tailers :appenders]))
+  [{p :queue-path} process]
+  (cond-> (select-keys process [:id :in :out :tailers :appenders])
+    p (assoc :queue-path p)))
 
 (defn- build-processor
   [{e      :error-queue
@@ -787,7 +755,7 @@
     e       (assoc :error-queue (get-q g e))
     t       (assoc-in [:imperative :tailers] (get-q g t))
     a       (assoc-in [:imperative :appenders] (get-q g a))
-    process (assoc :config (build-config process))))
+    process (assoc :config (build-config g process))))
 
 (defn- build-processors
   [g processors]
@@ -806,10 +774,12 @@
 
 (defn- build-queue
   [{tx-queue :tx-queue
+    p        :queue-path
     opts     :queue-opts
     :as      g} id]
   (when (and id (not (get-one-q g id)))
-    (->> {:tx-queue (= tx-queue id)}
+    (->> {:tx-queue   (= tx-queue id)
+          :queue-path p}
          (merge (get opts id))
          (queue id))))
 
@@ -1136,3 +1106,47 @@
   (-> g
       (assoc :config g)
       (update :processors (partial mapv parse-processor))))
+
+;; Utility
+
+(defn delete-queue!
+  "Caution: failing to purge the queue controller when deleting a queue
+  will cause blocking to break the next time the queue is made."
+  ([queue]
+   (delete-queue! queue false))
+  ([{:keys [id]
+     :as   queue} force]
+   {:pre [(queue? queue)]}
+   (let [p (queue-path queue)]
+     (when (or force (util/prompt-delete-data! p))
+       (close! queue)
+       (controllers/purge-controller id)
+       (util/delete-file (io/file p))))))
+
+(defn delete-graph-queues!
+  [g]
+  (stop-graph! g)
+  (doseq [q (vals (:queues g))]
+    (delete-queue! q true)))
+
+(defn delete-all-queues!
+  "Caution: failing to purge the queue controller when deleting a queue
+  will cause blocking to break the next time the queue is made."
+  ([]
+   (delete-all-queues! queue-path-default))
+  ([queue-path]
+   (when (util/prompt-delete-data! queue-path)
+     (reset! controllers/cache {})
+     (util/delete-file (io/file queue-path)))))
+
+(defn unused-queue-files
+  [queue]
+  (let [p (queue-path queue)]
+    (-> (io/file p)
+        (FileUtil/removableRollFileCandidates)
+        (.collect (Collectors/toList)))))
+
+(defn delete-unused-queue-files!
+  [queue]
+  (doseq [^File f (unused-queue-files queue)]
+    (.delete f)))
