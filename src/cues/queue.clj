@@ -25,7 +25,7 @@
 (def queue-path-default
   "data/queues/")
 
-(defn absolute-path?
+(defn- absolute-path?
   [x]
   (and (string? x)
        (str/starts-with? x "/")))
@@ -396,7 +396,7 @@
             out "sink"}} :config} e]
   (log/error e (format "%s (%s -> %s)" id in out)))
 
-(defn merge-meta
+(defn- merge-meta
   [in out]
   (when out
     (let [m (->> (vals in)
@@ -412,7 +412,7 @@
   [in out]
   (assoc out :q/meta (:q/meta in)))
 
-(defn get-result
+(defn- get-result
   [process result]
   (get result (-> process
                   :appender
@@ -428,7 +428,7 @@
     (when (every? some? vals)
       (zipmap keys vals))))
 
-(defn- alts-read!!
+(defn alts-read!!
   [{tailers :tailers}]
   (when-let [[t msg] (alts!! tailers)]
     {(:id (:queue t)) msg}))
@@ -443,13 +443,13 @@
             :else     zip-read!!)]
     (f process)))
 
-(defn select-processor
+(defn- select-processor
   "Keys passed on to the processor fn"
   [{imperative :imperative
     :as        process}]
   (merge process imperative))
 
-(defn run-fn!!
+(defn- run-fn!!
   [{f         :fn
     appender  :appender
     result-fn :result-fn
@@ -510,7 +510,7 @@
         (catch Throwable e
           (error-fn p e))))))
 
-(def processor-loop
+(def ^:private processor-loop
   (comp processor-loop* wrap-error-handling))
 
 (defn- join-tailers
@@ -527,7 +527,7 @@
            (map appender)
            (doall)))
 
-(defn join
+(defn- join
   "Reads messages from a seq of input tailers, applies a processor fn,
   and writes the reuslt to a single output appender. While queues can
   be shared across threads, appenders and tailers cannot. They must be
@@ -552,7 +552,7 @@
     (get msg out-id)
     (recover process)))
 
-(defn join-fork
+(defn- join-fork
   [{:keys [in out] :as process} stop backing-queue]
   (doall
    (flatten
@@ -584,7 +584,7 @@
     {:tailers   (zip (join-tailers p stop))
      :appenders (zip (fork-appenders p))}))
 
-(defn imperative
+(defn- imperative
   [{:keys [out] :as process} stop]
   [(future
      (processor-loop
@@ -594,7 +594,7 @@
              :appender   (when out (appender out))
              :imperative (imp-tailers process stop))))])
 
-(defn sink
+(defn- sink
   [process stop]
   [(future
      (processor-loop
@@ -654,7 +654,7 @@
            :stop stop
            :process-loops #(imperative process stop))))
 
-(defn coerce-cardinality
+(defn coerce-cardinality-impl
   [[t form]]
   (case t
     :many-1 (first form)
@@ -679,14 +679,14 @@
   (util/conform-to
     (s/or :one    ::id
           :many-1 ::id-many-1)
-    coerce-cardinality))
+    coerce-cardinality-impl))
 
 (s/def :any/in
   (util/conform-to
     (s/or :one    ::id
           :many   ::id-many
           :many-1 ::id-many-1)
-    coerce-cardinality))
+    coerce-cardinality-impl))
 
 (s/def :one/out    :one/in)
 (s/def :any/out    :any/in)
@@ -718,7 +718,7 @@
         ::source     ::source
         ::sink       ::sink))
 
-(defn parse-processor-impl
+(defn- parse-processor-impl
   [process]
   (let [[t p] (util/parse ::processor-impl process)]
     (-> p
@@ -957,7 +957,7 @@
 (s/def :map/source     (s/keys :req-un [::id]))
 (s/def ::fn            ::id)
 
-(defn coerce-cardinality
+(defn- coerce-cardinality
   [[t form]]
   (case t
     :one  [form]
