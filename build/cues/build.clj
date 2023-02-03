@@ -1,4 +1,4 @@
-(ns cues.core
+(ns cues.build
   (:require [com.stuartsierra.component :as component]
             [cues.queue :as q]
             [runway.core :as run]

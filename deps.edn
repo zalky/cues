@@ -20,10 +20,11 @@
                                                              :exclusions [org.clojure/tools.namespace]}}
                     :jvm-opts    ["-Dprofile=test"]
                     :main-opts   ["-m" "cognitect.test-runner"]}
-           :server {:etra-deps {io.zalky/runway {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}}
-                    :exec-fn   runway.core/exec
-                    :exec-args {runway.core/go {:system cues.core/test-system}}
-                    :jvm-opts  ["-XX:-OmitStackTraceInFastThrow"]}
+           :server {:extra-paths ["build"]
+                    :extra-deps  {io.zalky/runway {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}}
+                    :exec-fn     runway.core/exec
+                    :exec-args   {runway.core/go {:system cues.build/test-system}}
+                    :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]}
            :build  {:deps       {io.zalky/build-clj {:git/url "https://github.com/zalky/build-clj.git"
                                                      :git/sha "c8782e887381160f6d34d48425dc2d3a2a40f4cb"}}
                     :ns-default io.zalky.build}}}
