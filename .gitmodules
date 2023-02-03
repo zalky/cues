@@ -1,0 +1,3 @@
+[submodule "make-clj"]
+	path = make-clj
+	url = https://github.com/zalky/make-clj.git
