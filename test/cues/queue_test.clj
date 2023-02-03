@@ -2,76 +2,15 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.test :as t :refer [is]]
             [cues.queue :as q]
+            [cues.queue.test :as qt]
             [cues.util :as util]
             [taoensso.timbre :as log]
 
             [cues.log]))                ; Ensure logging is configured for tests.
 
-(defn with-warn
-  [f]
-  (log/with-level :warn
-    (f)))
-
-(defn last-read-index-from-1
-  "For testing purposes only."
-  [tailer]
-  (q/with-tailer [t-1 (:queue tailer)]
-    (let [i   (q/last-read-index* tailer)
-          _   (q/to-start t-1)
-          i-1 (q/index t-1)]
-      (inc (- i i-1)))))
-
-(defn to-index-from-1
-  "For testing purposes only."
-  [tailer i]
-  (q/with-tailer [t-1 (:queue tailer)]
-    (let [_   (q/to-start t-1)
-          i-1 (q/index t-1)]
-      (->> (+ i (dec i-1))
-           (q/to-index* tailer)))))
-
-(defn written-index-from-1
-  "For testing purposes only."
-  [queue i]
-  (q/with-tailer [t-1 queue]
-    (let [_   (q/to-start t-1)
-          i-1 (q/index t-1)]
-      (inc (- i i-1)))))
-
-(defn with-deterministic-meta
-  "The order that messages are placed on outbound fork queues is
-  non-deterministic, therefore we can't test timestamps here."
-  [f]
-  (binding [q/last-read-index last-read-index-from-1
-            q/to-index        to-index-from-1
-            q/timestamp       (fn [_ msg] msg)
-            q/written-index   written-index-from-1]
-    (f)))
-
 (t/use-fixtures :each
   (t/join-fixtures
-   [with-deterministic-meta with-warn]))
-
-(defn delete-graph-queues!
-  "Careful with this function!"
-  [g]
-  (doseq [q (vals (:queues g))]
-    (q/delete-queue! q true)))
-
-(defmacro with-graph-and-delete
-  [[sym :as binding] & body]
-  `(let ~binding
-     (let [~sym (-> ~sym
-                    (util/assoc-nil :error-queue ::error)
-                    (q/graph)
-                    (q/start-graph!))]
-       (try
-         ~@body
-         (finally
-           (-> ~sym
-               (q/stop-graph!)
-               (q/close-graph!)
-               (delete-graph-queues!)))))))
+   [qt/with-deterministic-meta qt/with-warn]))
 
 (defn p-fn
   [{r-fn   :reduce-fn
@@ -144,7 +83,7 @@
 
 (t/deftest graph-test-system
   (let [done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id ::sink-system
@@ -159,7 +98,7 @@
 
 (t/deftest graph-test-source-sink
   (let [done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id ::sink-source
@@ -171,14 +110,14 @@
       (q/send! g ::source {:x 3})
       (is (done? done))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                       {:x 2 :q/meta {:q/queue {::q1 {:q/t 2}}}}
-                       {:x 3 :q/meta {:q/queue {::q1 {:q/t 3}}}}]})))))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:q/queue {::q1 {:q/t 2}}}}
+                          {:x 3 :q/meta {:q/queue {::q1 {:q/t 3}}}}]})))))
 
 (t/deftest graph-test-pipe
   (let [done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id  ::pipe
@@ -196,23 +135,23 @@
       (q/send! g ::source {:x 3})
       (is (done? done))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                       {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}
-                       {:x 3 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}}}}]
-              ::q2    [{:x 2 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}
-                                                        ::q2 {:q/t 1}}}}
-                       {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}
-                                                        ::q2 {:q/t 2}}}}
-                       {:x 4 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}
-                                                        ::q2 {:q/t 3}}}}]})))))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}
+                          {:x 3 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}}}}]
+              ::q2       [{:x 2 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}
+                                                           ::q2 {:q/t 1}}}}
+                          {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}
+                                                           ::q2 {:q/t 2}}}}
+                          {:x 4 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}
+                                                           ::q2 {:q/t 3}}}}]})))))
 
 (t/deftest graph-test-alts
   (let [d1   (promise)
         d2   (promise)
         d3   (promise)
         done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -242,23 +181,23 @@
       (q/send! g ::s1 {:x 4})
       (is (done? done))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                       {:x 4 :q/meta {:q/queue {::q1 {:q/t 2}}}}]
-              ::q2    [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                       {:x 3 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3    [{:x 2 :q/meta {:q/queue {::q1 {:q/t 1}
-                                                ::q3 {:q/t 1}}}}
-                       {:x 3 :q/meta {:q/queue {::q2 {:q/t 1}
-                                                ::q3 {:q/t 2}}}}
-                       {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}
-                                                ::q3 {:q/t 3}}}}
-                       {:x 5 :q/meta {:q/queue {::q1 {:q/t 2}
-                                                ::q3 {:q/t 4}}}}]})))))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
+                          {:x 4 :q/meta {:q/queue {::q1 {:q/t 2}}}}]
+              ::q2       [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
+              ::q3       [{:x 2 :q/meta {:q/queue {::q1 {:q/t 1}
+                                                   ::q3 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::q2 {:q/t 1}
+                                                   ::q3 {:q/t 2}}}}
+                          {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}
+                                                   ::q3 {:q/t 3}}}}
+                          {:x 5 :q/meta {:q/queue {::q1 {:q/t 2}
+                                                   ::q3 {:q/t 4}}}}]})))))
 
 (t/deftest graph-test-imperative
   (let [done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id        ::pipe
@@ -278,20 +217,20 @@
       (q/send! g ::source {:x 3})
       (is (done? done))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                       {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}
-                       {:x 3 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}}}}]
-              ::q2    [{:x 2 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}
-                                                        ::q2 {:q/t 1}}}}
-                       {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}
-                                                        ::q2 {:q/t 2}}}}
-                       {:x 4 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}
-                                                        ::q2 {:q/t 3}}}}]})))))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}
+                          {:x 3 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}}}}]
+              ::q2       [{:x 2 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}
+                                                           ::q2 {:q/t 1}}}}
+                          {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}
+                                                           ::q2 {:q/t 2}}}}
+                          {:x 4 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}
+                                                           ::q2 {:q/t 3}}}}]})))))
 
 (t/deftest graph-test-join
   (let [done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -311,24 +250,24 @@
       (q/send! g ::s2 {:x 4})
       (is (done? done))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                       {:x 3 :q/meta {:q/queue {::q1 {:q/t 2}}}}]
-              ::q2    [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                       {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3    [{:x 3 :q/meta {:tx/t    1
-                                      :q/queue {::q1 {:q/t 1}
-                                                ::q2 {:q/t 1}
-                                                ::q3 {:q/t 1}}}}
-                       {:x 7 :q/meta {:tx/t    2
-                                      :q/queue {::q1 {:q/t 2}
-                                                ::q2 {:q/t 2}
-                                                ::q3 {:q/t 2}}}}]})))))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::q1 {:q/t 2}}}}]
+              ::q2       [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
+                          {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
+              ::q3       [{:x 3 :q/meta {:tx/t    1
+                                         :q/queue {::q1 {:q/t 1}
+                                                   ::q2 {:q/t 1}
+                                                   ::q3 {:q/t 1}}}}
+                          {:x 7 :q/meta {:tx/t    2
+                                         :q/queue {::q1 {:q/t 2}
+                                                   ::q2 {:q/t 2}
+                                                   ::q3 {:q/t 2}}}}]})))))
 
 (t/deftest graph-test-join-fork
   (let [q3-done (promise)
         q4-done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -352,32 +291,32 @@
       (is (and (done? q3-done)
                (done? q4-done)))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                       {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}]
-              ::q2    [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                       {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3    [{:x 3 :q/meta {:tx/t    1
-                                      :q/queue {::q1 {:q/t 1}
-                                                ::q2 {:q/t 1}
-                                                ::q3 {:q/t 1}}}}
-                       {:x 7 :q/meta {:tx/t    2
-                                      :q/queue {::q1 {:q/t 2}
-                                                ::q2 {:q/t 2}
-                                                ::q3 {:q/t 2}}}}]
-              ::q4    [{:x 3 :q/meta {:tx/t    1
-                                      :q/queue {::q1 {:q/t 1}
-                                                ::q2 {:q/t 1}
-                                                ::q4 {:q/t 1}}}}
-                       {:x 7 :q/meta {:tx/t    2
-                                      :q/queue {::q1 {:q/t 2}
-                                                ::q2 {:q/t 2}
-                                                ::q4 {:q/t 2}}}}]})))))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}]
+              ::q2       [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
+                          {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
+              ::q3       [{:x 3 :q/meta {:tx/t    1
+                                         :q/queue {::q1 {:q/t 1}
+                                                   ::q2 {:q/t 1}
+                                                   ::q3 {:q/t 1}}}}
+                          {:x 7 :q/meta {:tx/t    2
+                                         :q/queue {::q1 {:q/t 2}
+                                                   ::q2 {:q/t 2}
+                                                   ::q3 {:q/t 2}}}}]
+              ::q4       [{:x 3 :q/meta {:tx/t    1
+                                         :q/queue {::q1 {:q/t 1}
+                                                   ::q2 {:q/t 1}
+                                                   ::q4 {:q/t 1}}}}
+                          {:x 7 :q/meta {:tx/t    2
+                                         :q/queue {::q1 {:q/t 2}
+                                                   ::q2 {:q/t 2}
+                                                   ::q4 {:q/t 2}}}}]})))))
 
 (t/deftest graph-test-join-fork-conditional
   (let [q3-done (promise)
         q4-done (promise)]
-    (with-graph-and-delete
+    (qt/with-graph-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -404,33 +343,25 @@
       (is (and (done? q3-done)
                (done? q4-done)))
       (is (= (q/all-graph-messages g)
-             {::error []
-              ::q1    [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                       {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}]
-              ::q2    [{:x 1 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                       {:x 3 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3    [{:x 2 :q/meta {:tx/t    1
-                                      :q/queue {::q1 {:q/t 1}
-                                                ::q2 {:q/t 1}
-                                                ::q3 {:q/t 1}}}}]
-              ::q4    [{:x 5 :q/meta {:tx/t    2
-                                      :q/queue {::q1 {:q/t 2}
-                                                ::q2 {:q/t 2}
-                                                ::q4 {:q/t 1}}}}]})))))
-
-(defn simplify-exceptions
-  [messages]
-  (map #(update %
-                :err/cause
-                select-keys
-                [:cause])
-       messages))
+             {::qt/error []
+              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}]
+              ::q2       [{:x 1 :q/meta {:q/queue {::q2 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
+              ::q3       [{:x 2 :q/meta {:tx/t    1
+                                         :q/queue {::q1 {:q/t 1}
+                                                   ::q2 {:q/t 1}
+                                                   ::q3 {:q/t 1}}}}]
+              ::q4       [{:x 5 :q/meta {:tx/t    2
+                                         :q/queue {::q1 {:q/t 2}
+                                                   ::q2 {:q/t 2}
+                                                   ::q4 {:q/t 1}}}}]})))))
 
 (t/deftest graph-test-error
   ;; Suppress exception logging, just testing messaging
   (log/with-level :fatal
     (let [done (promise)]
-      (with-graph-and-delete
+      (qt/with-graph-and-delete
         [g {:processors [{:id  ::source
                           :out ::q1}
                          {:id  ::pipe-error
@@ -449,31 +380,31 @@
         (q/send! g ::source {:x 4})
         (is (done? done))
         (is (= (-> (q/all-graph-messages g)
-                   (update ::error simplify-exceptions))
-               {::error [{:kr/type           :kr.type.err/processor
-                          :err/cause         {:cause "Oops"}
-                          :err.proc/config   {:id  ::pipe-error
-                                              :in  ::q1
-                                              :out ::q2}
-                          :err.proc/messages {::q1 {:x      1
-                                                    :q/meta {:q/queue {::q1 {:q/t 1}}}}}
-                          :q/meta            {:q/queue {::error {:q/t 1}}}}
-                         {:kr/type           :kr.type.err/processor
-                          :err/cause         {:cause "Oops"}
-                          :err.proc/config   {:id  ::pipe-error
-                                              :in  ::q1
-                                              :out ::q2}
-                          :err.proc/messages {::q1 {:x      3
-                                                    :q/meta {:q/queue {::q1 {:q/t 3}}}}}
-                          :q/meta            {:q/queue {::error {:q/t 2}}}}]
-                ::q1    [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                         {:x 2 :q/meta {:q/queue {::q1 {:q/t 2}}}}
-                         {:x 3 :q/meta {:q/queue {::q1 {:q/t 3}}}}
-                         {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}}}}]
-                ::q2    [{:x 2 :q/meta {:q/queue {::q1 {:q/t 2}
-                                                  ::q2 {:q/t 1}}}}
-                         {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}
-                                                  ::q2 {:q/t 2}}}}]}))))))
+                   (update ::qt/error qt/simplify-exceptions))
+               {::qt/error [{:kr/type           :kr.type.err/processor
+                             :err/cause         {:cause "Oops"}
+                             :err.proc/config   {:id  ::pipe-error
+                                                 :in  ::q1
+                                                 :out ::q2}
+                             :err.proc/messages {::q1 {:x      1
+                                                       :q/meta {:q/queue {::q1 {:q/t 1}}}}}
+                             :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
+                            {:kr/type           :kr.type.err/processor
+                             :err/cause         {:cause "Oops"}
+                             :err.proc/config   {:id  ::pipe-error
+                                                 :in  ::q1
+                                                 :out ::q2}
+                             :err.proc/messages {::q1 {:x      3
+                                                       :q/meta {:q/queue {::q1 {:q/t 3}}}}}
+                             :q/meta            {:q/queue {::qt/error {:q/t 2}}}}]
+                ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
+                            {:x 2 :q/meta {:q/queue {::q1 {:q/t 2}}}}
+                            {:x 3 :q/meta {:q/queue {::q1 {:q/t 3}}}}
+                            {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}}}}]
+                ::q2       [{:x 2 :q/meta {:q/queue {::q1 {:q/t 2}
+                                                     ::q2 {:q/t 1}}}}
+                            {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}
+                                                     ::q2 {:q/t 2}}}}]}))))))
 
 (defn p-counter
   [p n]
@@ -483,7 +414,7 @@
         (deliver p true)))))
 
 (def stress-fixtures
-  (t/join-fixtures [with-warn]))
+  (t/join-fixtures [qt/with-warn]))
 
 (defn stress-test
   [n]
@@ -492,7 +423,7 @@
      (let [q3-done (promise)
            q4-done (promise)
            timeout (max (/ n 10) 1000)]
-       (with-graph-and-delete
+       (qt/with-graph-and-delete
          [g {:processors [{:id  ::s1
                            :out ::q1}
                           {:id  ::s2
@@ -543,8 +474,8 @@
   "Elapsed time: 7153.911291 msecs"
   "Elapsed time: 23936.871375 msecs"
   {:success? true
-   :counts   {::error 0
-              ::q1    1000000
-              ::q2    1000000
-              ::q3    1000000
-              ::q4    1000000}})
+   :counts   {::qt/error 0
+              ::q1       1000000
+              ::q2       1000000
+              ::q3       1000000
+              ::q4       1000000}})
