@@ -311,7 +311,7 @@
   (when stop
     (remove-watch stop id)))
 
-(defn run?
+(defn running?
   [{stop :stop
     :as  obj}]
   (and (some? obj)
@@ -320,7 +320,7 @@
 
 (defn- try-read
   [tailer]
-  (when (run? tailer)
+  (when (running? tailer)
     (loop [n 10000]
       (if (pos? n)
         (or (read tailer)
@@ -503,7 +503,7 @@
     :or   {run-fn run-fn!!}
     :as   process}]
   {:pre [error-fn run-fn]}
-  (while (run? process)
+  (while (running? process)
     (let [p (snapshot process)]
       (try
         (processor-write p (run-fn p))
@@ -613,29 +613,29 @@
   [x]
   (isa? (:type x) ::processor))
 
-(defmulti processor-impl
+(defmulti start-processor-impl
   "Analogous to Kafka streams processor."
   :type)
 
-(defmethod processor-impl ::source
+(defmethod start-processor-impl ::source
   [{:keys [out] :as process}]
   (merge (appender out) process))
 
-(defmethod processor-impl ::sink
+(defmethod start-processor-impl ::sink
   [{:keys [id] :as process}]
   (let [stop (atom nil)]
     (assoc process
            :stop stop
-           :process-loops #(sink process stop))))
+           :futures (sink process stop))))
 
-(defmethod processor-impl ::join
+(defmethod start-processor-impl ::join
   [{:keys [id] :as process}]
   (let [stop (atom nil)]
     (assoc process
            :stop stop
-           :process-loops #(join process stop))))
+           :futures (join process stop))))
 
-(defmethod processor-impl ::join-fork
+(defmethod start-processor-impl ::join-fork
   ;; Guarantees idempotency via backing queue.
   [{:keys [id config] :as process}]
   (let [stop (atom nil)
@@ -644,15 +644,15 @@
                         :queue-path p})]
     (assoc process
            :stop stop
-           :process-loops #(join-fork process stop q)
+           :futures (join-fork process stop q)
            :backing-queue q)))
 
-(defmethod processor-impl ::imperative
+(defmethod start-processor-impl ::imperative
   [{:keys [id] :as process}]
   (let [stop (atom nil)]
     (assoc process
            :stop stop
-           :process-loops #(imperative process stop))))
+           :futures (imperative process stop))))
 
 (defn coerce-cardinality-impl
   [[t form]]
@@ -755,13 +755,13 @@
     e       (assoc :error-queue (get-q g e))
     t       (assoc-in [:imperative :tailers] (get-q g t))
     a       (assoc-in [:imperative :appenders] (get-q g a))
-    process (assoc :config (build-config g process))))
+    process (assoc :config (build-config g process))
+    true    (assoc :state (atom nil))))
 
 (defn- build-processors
   [g processors]
   (->> processors
        (map (partial build-processor g))
-       (map processor-impl)
        (map (juxt :id identity))
        (update g :processors util/into-once)))
 
@@ -853,25 +853,28 @@
         (build-processors p)
         (build-topology))))
 
+(defn- ensure-done
+  [{:keys [futures]}]
+  (when futures
+    (doall (map deref futures))))
+
 (defn start-processor!
-  [{id  :id
-    p   :process-loops
-    :as process}]
-  (if (and p (fn? p))
+  [{:keys [id state]
+    :as   process}]
+  (if (compare-and-set! state nil ::started)
     (do (log/info "Starting" id)
-        (assoc process :process-loops (p)))
+        (ensure-done process)
+        (start-processor-impl process))
     process))
 
 (defn stop-processor!
-  [{id   :id
-    stop :stop
-    p    :process-loops
-    :as  process}]
-  (if (and p stop (run? process))
+  [{:keys [id state stop]
+    :as   process}]
+  (if (compare-and-set! state ::started ::stopped)
     (do (log/info "Stopping" id)
-        (reset! stop true)
-        (doall (map deref p))
-        process)
+        (when stop (reset! stop true))
+        (ensure-done process)
+        (assoc process :state (atom nil)))
     process))
 
 (defn start-graph!
