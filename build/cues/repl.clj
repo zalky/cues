@@ -1,7 +1,12 @@
-(ns cues.repl
-  (:require [cues.queue :as q]
-            [runway.core :as run]
-            [taoensso.timbre :as log]))
+(ns cues.repl)
+
+(in-ns 'user)
+
+(require '[cues.build :as build]
+         '[cues.deps :as deps]
+         '[cues.queue :as q]
+         '[runway.core :as run]
+         '[taoensso.timbre :as log])
 
 (defn system
   "Returns the full system, or specific dependencies."

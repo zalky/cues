@@ -6,14 +6,16 @@
            org.clojure/clojure         {:mvn/version "1.10.3"}
            io.zalky/tape               {:mvn/version "0.3.5-SNAPSHOT" :exclusions [net.openhft/chronicle-analytics]}}
  :paths   ["src"]
- :aliases {:repl   {:extra-deps {cider/cider-nrepl             {:mvn/version "0.28.5"}
-                                 criterium/criterium           {:mvn/version "0.4.4"}
-                                 io.zalky/runway               {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}
-                                 nrepl/nrepl                   {:mvn/version "0.8.3"}
-                                 refactor-nrepl/refactor-nrepl {:mvn/version "2.5.1"}}
-                    :exec-fn    runway.core/exec
-                    :exec-args  {runway.core/watcher {}
-                                 runway.nrepl/server {}}}
+ :aliases {:repl   {:extra-paths ["build"]
+                    :extra-deps  {cider/cider-nrepl             {:mvn/version "0.28.5"}
+                                  criterium/criterium           {:mvn/version "0.4.4"}
+                                  io.zalky/runway               {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}
+                                  nrepl/nrepl                   {:mvn/version "0.8.3"}
+                                  refactor-nrepl/refactor-nrepl {:mvn/version "2.5.1"}}
+                    :exec-fn     runway.core/exec
+                    :exec-args   {runway.core/watcher {}
+                                  runway.nrepl/server {}
+                                  cues.repl           true}}
            :test   {:extra-paths ["test"]
                     :extra-deps  {com.cognitect/test-runner {:git/url    "https://github.com/cognitect-labs/test-runner.git"
                                                              :sha        "705ad25bbf0228b1c38d0244a36001c2987d7337"
