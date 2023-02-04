@@ -101,9 +101,9 @@
 
 (defn queue-opts
   [{:keys [transient] :as opts}]
-  (cond-> opts
-    true      (assoc :codec (codec))
-    transient (merge transient-queue-opts)))
+  (cond-> (assoc opts :codec (codec))
+    (true? transient) (merge transient-queue-opts)
+    (map? transient)  (merge transient)))
 
 (defn queue
   ([id]
