@@ -735,9 +735,12 @@
     (get-one-q g ids)
     (map (partial get-one-q g) ids)))
 
+(def ^:private processor-config-keys
+  [:id :in :out :tailers :appenders :topics :types])
+
 (defn- build-config
   [{p :queue-path} process]
-  (cond-> (select-keys process [:id :in :out :tailers :appenders])
+  (cond-> (select-keys process processor-config-keys)
     p (assoc :queue-path p)))
 
 (defn- build-processor

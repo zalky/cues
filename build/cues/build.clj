@@ -24,10 +24,10 @@
    :queue-path "data/example"
    :processors [{:id ::s1}
                 {:id  ::processor
+                 :topics ::doc
                  :in  {::s1 :in}
                  :out {::tx :out}}
                 {:id     ::doc-store
-                 :topics ::doc
                  :in     {::tx :in}
                  :opts   {:db db}}]})
 
