@@ -86,7 +86,7 @@
            (str (name id) suffix)))
 
 (defn- tailer-id
-  [queue-id id]
+  [{queue-id :id} id]
   (when (and queue-id id)
     (->> (str "tailer" queue-id id)
          (keyword (namespace ::_)))))
@@ -101,11 +101,43 @@
 
 (defn queue-opts
   [{:keys [transient] :as opts}]
-  (cond-> (assoc opts :codec (codec))
-    (true? transient) (merge transient-queue-opts)
-    (map? transient)  (merge transient)))
+  (cond-> (-> opts
+              (assoc :codec (codec))
+              (dissoc :transient))
+    (true? transient) (merge transient-queue-opts)))
 
 (defn queue
+  "Creates a persistent blocking queue.
+
+  Options include:
+
+  :transient
+            A boolean. If true, queue backing file will be rolled
+            daily, and deleted after 10 days.
+
+  The following options are passed along to the underlying
+  implementation:
+
+  :roll-cycle
+            How frequently the queue data file on disk is rolled
+            over. Default is :small-daily. Can be:
+
+            :minutely, :daily, :test4-daily, :test-hourly, :hourly,
+            :test-secondly, :huge-daily-xsparse, :test-daily,
+            :large-hourly-xsparse, :large-daily, :test2-daily,
+            :xlarge-daily, :huge-daily, :large-hourly, :small-daily,
+            :large-hourly-sparse
+
+  :autoclose-on-jvm-exit?
+            Whether to cleanly close the JVM on exit.
+
+  :cycle-release-tasks
+            Tasks to run on queue release. See
+            qbits.tape.cycle-listener in the Tape library.
+
+  :cycle-acquire-tasks
+            Tasks to run on queue acquisition. See
+            qbits.tape.cycle-listener in the Tape library."
   ([id]
    (queue id nil))
   ([id opts*]
@@ -122,21 +154,25 @@
 (declare prime-tailer)
 
 (defn tailer
-  "Providing an id enables persistent restarts on the given queue."
+  "Creates a tailer.
+
+  Providing an id enables tailer position on the queue to persist
+  across restarts. You can also optionally provide a stop reference
+  that when set to true will stop the tailer from blocking. This is
+  typically used to stop and clean up blocked processor threads."
   ([queue] (tailer queue nil nil))
+  ([queue id] (tailer queue id nil))
   ([queue id stop]
    {:pre [(queue? queue)]}
-   (let [qid  (:id queue)
-         tid  (tailer-id qid id)
-         opts {:id (some-> tid id->str)}]
+   (let [tid  (tailer-id queue id)
+         opts {:id (some-> tid id->str)}
+         t    (tail/make (:queue-impl queue) opts)]
      (prime-tailer
       {:type        ::tailer
        :id          tid
        :stop        stop
        :queue       queue
-       :tailer-impl (-> queue
-                        (:queue-impl)
-                        (tail/make opts))}))))
+       :tailer-impl t}))))
 
 (defn appender
   [{q :queue-impl :as queue}]
