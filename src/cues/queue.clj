@@ -202,7 +202,8 @@
   [t i]
   (if (zero? i)
     (tail/to-start! (:tailer-impl t))
-    (tail/to-index! (:tailer-impl t) i)))
+    (tail/to-index! (:tailer-impl t) i))
+  t)
 
 (defn- prime-tailer
   "In certain rare cases, a newly initialized StoreTailer will start
@@ -213,8 +214,7 @@
   [tailer]
   {:pre [(tailer? tailer)]}
   (->> (index tailer)
-       (to-index* tailer))
-  tailer)
+       (to-index* tailer)))
 
 (def ^:dynamic to-index
   "Only rebind for testing!"
