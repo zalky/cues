@@ -455,6 +455,17 @@
   ;; This measure a single round-trip read + write, with blocking. The
   ;; messages being serialized on these queues are generally between
   ;; 114-117 Bytes in size.
+
+  (b/quick-bench
+   (q/write a {:x 1}))
+
+  "Evaluation count : 337680 in 6 samples of 56280 calls.
+               Execution time mean : 1.783489 µs
+      Execution time std-deviation : 7.273196 ns
+     Execution time lower quantile : 1.775182 µs ( 2.5%)
+     Execution time upper quantile : 1.792262 µs (97.5%)
+                     Overhead used : 2.045223 ns"
+
   (b/quick-bench
    (do (q/write a {:x 1})
        (q/read!! t)))

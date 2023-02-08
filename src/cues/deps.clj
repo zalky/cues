@@ -1,7 +1,7 @@
 (ns cues.deps
   (:require [clojure.set :as set]
             [clojure.spec.alpha :as s]
-            [clojure.tools.namespace.dependency :as dep]
+            [com.stuartsierra.dependency :as dep]
             [cues.util :as util]))
 
 (s/def ::steps

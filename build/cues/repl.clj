@@ -8,6 +8,8 @@
          '[runway.core :as run]
          '[taoensso.timbre :as log])
 
+(set! *warn-on-reflection* true)
+
 (defn system
   "Returns the full system, or specific dependencies."
   ([]

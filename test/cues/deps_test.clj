@@ -1,12 +1,12 @@
 (ns cues.deps-test
   (:require [cues.deps :as deps]
             [clojure.test :as t :refer [is]]
-            [clojure.tools.namespace.dependency :as ctnd]))
+            [com.stuartsierra.dependency :as sdeps]))
 
 (defn g
   [nodes dependencies dependents]
   (->> dependents
-       (ctnd/->MapDependencyGraph dependencies)
+       (sdeps/->MapDependencyGraph dependencies)
        (deps/disconnected-graph nodes)))
 
 (t/deftest graph-test
