@@ -7,29 +7,25 @@
             [cues.log]))
 
 (defmethod q/processor ::processor
-  [{:keys [system]} {msg :in}]
-  {:out (assoc-in msg [:q/topics ::doc :processed] true)})
+  [_ {msg :in}]
+  {:out (update msg :x inc)})
 
 (defmethod q/processor ::doc-store
-  [{{db :db} :opts}
-   {{{{id  :id
-       :as doc} ::doc} :q/topics
-     :as               msg} :in}]
-  (swap! db update id merge doc))
+  [{{db :db} :opts} {msg :in}]
+  (swap! db assoc (:x msg) (dissoc msg :q/meta)))
 
-(defn graph
+(defn graph-spec
   [db]
   {:source     ::s1
    :tx-queue   ::tx
    :queue-path "data/example"
    :processors [{:id ::s1}
                 {:id  ::processor
-                 :topics ::doc
                  :in  {::s1 :in}
                  :out {::tx :out}}
-                {:id     ::doc-store
-                 :in     {::tx :in}
-                 :opts   {:db db}}]})
+                {:id   ::doc-store
+                 :in   {::tx :in}
+                 :opts {:db db}}]})
 
 (defonce db
   (atom {}))
@@ -37,8 +33,7 @@
 (defrecord GraphExample []
   component/Lifecycle
   (start [c]
-    (->> (graph db)
-         (q/parse-graph)
+    (->> (graph-spec db)
          (q/graph)
          (q/start-graph!)
          (merge c)))

@@ -55,7 +55,7 @@
   `(let ~binding
      (let [~sym (-> ~sym
                     (util/assoc-nil :error-queue ::error)
-                    (q/graph)
+                    (q/graph-impl)
                     (q/start-graph!))]
        (try
          ~@body

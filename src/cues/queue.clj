@@ -864,7 +864,7 @@
     in  (assoc (queue-ids in) id)
     out (assoc id (queue-ids out))))
 
-(defn topology
+(defn- build-topology*
   [processors]
   (->> processors
        (vals)
@@ -873,17 +873,13 @@
        (deps/graph)
        (remove-queues processors)))
 
-(defn isomorphic?
-  [g1 g2]
-  (= (topology g1) (topology g2)))
-
-(defn build-topology
+(defn- build-topology
   [graph]
   (->> (:processors graph)
-       (topology)
+       (build-topology*)
        (assoc graph :topology)))
 
-(defn graph
+(defn graph-impl
   [{p :processors :as config}]
   (let [p (map parse-processor-impl p)]
     (-> config
@@ -978,18 +974,6 @@
     (zipmap
      (map :id queues*)
      (map all-messages queues*))))
-
-(defn send!
-  ([g tx]
-   (send! g nil tx))
-  ([{p           :processors
-     {s :source} :config
-     :as         g} source msg]
-   (if-let [a (get p (or source s))]
-     (write a msg)
-     (throw (ex-info "Could not find source" {:id source})))))
-
-;;;; Processors
 
 (s/def ::id-map        (s/map-of ::id keyword?))
 (s/def ::in            ::id-map)
@@ -1119,7 +1103,7 @@
         (wrap-msg-filter filter-fn)
         (wrap-msg-keys in rev))))
 
-(defn parse-processor
+(defn- parse-processor
   [process]
   (let [[t parsed]          (util/parse ::processor process)
         {:keys [id
@@ -1148,6 +1132,31 @@
   (-> g
       (assoc :config g)
       (update :processors (partial mapv parse-processor))))
+
+(defn graph
+  [g]
+  (-> g
+      (parse-graph)
+      (graph-impl)))
+
+(defn topology
+  [graph]
+  (:topology graph))
+
+(defn isomorphic?
+  [g1 g2]
+  (= (topology g1)
+     (topology g2)))
+
+(defn send!
+  ([g tx]
+   (send! g nil tx))
+  ([{p           :processors
+     {s :source} :config
+     :as         g} source msg]
+   (if-let [a (get p (or source s))]
+     (write a msg)
+     (throw (ex-info "Could not find source" {:id source})))))
 
 ;; Utility
 
