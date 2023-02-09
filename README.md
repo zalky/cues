@@ -164,7 +164,10 @@ message: 2
 message: 3
 ```
 
-Tailers have two other tricks up their sleeves:
+Voila, we are already using ultra-low latency persistent messaging
+between threads.
+
+Cues tailers have two other tricks up their sleeves:
 
 1. **Persistence across runtimes**: if you pass a tailer an id at
    creation time, then that tailer's state will persist with that
@@ -174,19 +177,21 @@ Tailers have two other tricks up their sleeves:
    (q/tailer q ::tailer-id)
    ```
    
-   Without the `::tailer-id`, this tailer would restart from the
-   beginning of the queue next time you start the application.
+   Without an id, this tailer would restart from the beginning of the
+   queue every time you launch the application.
 
-2. **Unblocking**: you can additionally pass a tailer a `stop`
+2. **Unblocking**: you can additionally pass a tailer an `unblock`
    atom. If the value of the atom is ever set to true, then the tailer
    will no longer block on reads:
 
    ```clj
-   (let [stop (atom nil)]
-     (q/tailer q ::tailer-id stop)
+   (let [unblock (atom nil)]
+     (q/tailer q ::tailer-id unblock)
      ...)
    ```
 
+   This would typically be used to unblock and clean up blocked
+   threads.
 
 Finally there is another blocking read function, `cues.queue/alts!!`
 that given a list of tailers, will complete at most _one_ read from
@@ -199,10 +204,6 @@ the first tailer that has a message available:
  :q/meta {:q/queue {::queue {:q/time #object[java.time.Instant 0x4179c7f2 "2023-02-08T20:15:22.078240Z"]
                              :q/t    83305185673216}}}}
 ```
-
-With these three queue primitives and the various read methods, you
-can communicate between processes using persistent, ultra-low latency
-messages.
 
 #### Additional Queue Primitive Functions
 

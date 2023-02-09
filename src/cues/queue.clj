@@ -157,12 +157,13 @@
   "Creates a tailer.
 
   Providing an id enables tailer position on the queue to persist
-  across restarts. You can also optionally provide a stop reference
-  that when set to true will stop the tailer from blocking. This is
-  typically used to stop and clean up blocked processor threads."
+  across restarts. You can also optionally provide an unblock
+  reference that when set to true will prevent the tailer from
+  blocking. This is typically used to unblock and clean up blocked
+  processor threads."
   ([queue] (tailer queue nil nil))
   ([queue id] (tailer queue id nil))
-  ([queue id stop]
+  ([queue id unblock]
    {:pre [(queue? queue)]}
    (let [tid  (tailer-id queue id)
          opts {:id (some-> tid id->str)}
@@ -170,7 +171,7 @@
      (prime-tailer
       {:type        ::tailer
        :id          tid
-       :stop        stop
+       :unblock     unblock
        :queue       queue
        :tailer-impl t}))))
 
@@ -320,39 +321,39 @@
 (defn- watch-controller!
   [{id              :id
     {c :controller} :queue
-    :as             tailer} unblock]
+    :as             tailer} continue]
   (when c
     (let [tailer-i (index tailer)]
       (add-watch c id
         (fn [id _ _ i]
           (when (<= tailer-i i)
-            (deliver unblock tailer)))))))
+            (deliver continue tailer)))))))
 
-(defn- watch-stop!
-  [{id   :id
-    stop :stop} unblock]
-  (when stop
-    (add-watch stop id
+(defn- watch-unblock!
+  [{id      :id
+    unblock :unblock} continue]
+  (when unblock
+    (add-watch unblock id
       (fn [id _ _ new]
         (when (true? new)
-          (deliver unblock nil))))
-    (swap! stop identity)))
+          (deliver continue nil))))
+    (swap! unblock identity)))
 
 (defn- rm-watches
   [{id              :id
     {c :controller} :queue
-    stop            :stop}]
+    unblock         :unblock}]
   (when c
     (remove-watch c id))
-  (when stop
-    (remove-watch stop id)))
+  (when unblock
+    (remove-watch unblock id)))
 
 (defn running?
-  [{stop :stop
-    :as  obj}]
+  [{unblock :unblock
+    :as     obj}]
   (and (some? obj)
-       (or (not (instance? IRef stop))
-           (not @stop))))
+       (or (not (instance? IRef unblock))
+           (not @unblock))))
 
 (defn- try-read
   [tailer]
@@ -368,17 +369,17 @@
   watches the controller until a new message is available. It is
   critical that the watch be placed before the first read. Note that
   the tailer index will always be one ahead of the last index it
-  read. Read will unblock and return nil if at any point a stop signal
-  is received. This allows blocked threads to be cleaned up on stop
-  events."
+  read. Read will continue and return nil if at any point a unblock
+  signal is received. This allows blocked threads to be cleaned up on
+  unblock events."
   [tailer]
   {:pre [(tailer? tailer)]}
-  (let [unblock (promise)]
-    (watch-controller! tailer unblock)
-    (watch-stop! tailer unblock)
+  (let [continue (promise)]
+    (watch-controller! tailer continue)
+    (watch-unblock! tailer continue)
     (if-let [msg (read tailer)]
       (do (rm-watches tailer) msg)
-      (let [t @unblock]
+      (let [t @continue]
         (rm-watches t)
         (try-read t)))))
 
@@ -397,12 +398,12 @@
   of each read are that or read!!."
   [tailers]
   {:pre [(every? tailer? tailers)]}
-  (let [unblock (promise)]
+  (let [continue (promise)]
     (doseq [t tailers]
-      (watch-controller! t unblock)
-      (watch-stop! t unblock))
+      (watch-controller! t continue)
+      (watch-unblock! t continue))
     (or (alts tailers)
-        (let [t @unblock]
+        (let [t @continue]
           (doseq [t* tailers]
             (rm-watches t*))
           (some->> (try-read t)
@@ -451,9 +452,9 @@
 (defn- get-result
   [process result]
   (get result (-> process
-                  :appender
-                  :queue
-                  :id)))
+                  (:appender)
+                  (:queue)
+                  (:id))))
 
 (defn zip-read!!
   "Blocking read from all tailers into a map. Returns nil if any one of
@@ -550,10 +551,10 @@
   (comp processor-loop* wrap-error-handling))
 
 (defn- join-tailers
-  [{:keys [tid in]} stop]
+  [{:keys [tid in]} unblock]
   (some->> in
            (util/seqify)
-           (map #(tailer % tid stop))
+           (map #(tailer % tid unblock))
            (doall)))
 
 (defn- fork-appenders
@@ -568,13 +569,13 @@
   and writes the reuslt to a single output appender. While queues can
   be shared across threads, appenders and tailers cannot. They must be
   created in the thread they are meant to be used in to avoid errors."
-  [{:keys [out] :as process} stop]
+  [{:keys [out] :as process} unblock]
   [(future
      (processor-loop
       (assoc process
-             :stop      stop
-             :appender  (appender out)
-             :tailers   (join-tailers process stop))))])
+             :unblock  unblock
+             :appender (appender out)
+             :tailers  (join-tailers process unblock))))])
 
 (defn- fork-run!!
   "Conditionally passes message from the join backing queue onto to the
@@ -589,21 +590,21 @@
     (recover process)))
 
 (defn- join-fork
-  [{:keys [in out] :as process} stop backing-queue]
+  [{:keys [in out] :as process} unblock backing-queue]
   (doall
    (flatten
     (cons
      (-> process
          (assoc :out       backing-queue
                 :result-fn (fn [_ r] r))
-         (join stop))
+         (join unblock))
      (for [{id :id :as o} out]
        (-> process
            (assoc :tid    id
                   :run-fn fork-run!!
                   :in     backing-queue
                   :out    o)
-           (join stop)))))))
+           (join unblock)))))))
 
 (defn- zip
   [xs]
@@ -613,30 +614,30 @@
   [{tid            :tid
     {t :tailers
      a :appenders} :imperative
-    :as            process} stop]
+    :as            process} unblock]
   (let [p {:in  t
            :out a
            :tid (suffix-id "-i" tid)}]
-    {:tailers   (zip (join-tailers p stop))
+    {:tailers   (zip (join-tailers p unblock))
      :appenders (zip (fork-appenders p))}))
 
 (defn- imperative
-  [{:keys [out] :as process} stop]
+  [{:keys [out] :as process} unblock]
   [(future
      (processor-loop
       (assoc process
-             :stop       stop
-             :tailers    (join-tailers process stop)
+             :unblock    unblock
+             :tailers    (join-tailers process unblock)
              :appender   (when out (appender out))
-             :imperative (imp-tailers process stop))))])
+             :imperative (imp-tailers process unblock))))])
 
 (defn- sink
-  [process stop]
+  [process unblock]
   [(future
      (processor-loop
       (assoc process
-             :stop    stop
-             :tailers (join-tailers process stop))))])
+             :unblock unblock
+             :tailers (join-tailers process unblock))))])
 
 (derive ::source     ::appender)
 (derive ::source     ::processor)
@@ -659,36 +660,36 @@
 
 (defmethod start-processor-impl ::sink
   [{:keys [id] :as process}]
-  (let [stop (atom nil)]
+  (let [unblock (atom nil)]
     (assoc process
-           :stop stop
-           :futures (sink process stop))))
+           :unblock unblock
+           :futures (sink process unblock))))
 
 (defmethod start-processor-impl ::join
   [{:keys [id] :as process}]
-  (let [stop (atom nil)]
+  (let [unblock (atom nil)]
     (assoc process
-           :stop stop
-           :futures (join process stop))))
+           :unblock unblock
+           :futures (join process unblock))))
 
 (defmethod start-processor-impl ::join-fork
   ;; Guarantees idempotency via backing queue.
   [{:keys [id config] :as process}]
-  (let [stop (atom nil)
-        p    (:queue-path config)
-        q    (queue id {:transient  true
-                        :queue-path p})]
+  (let [unblock (atom nil)
+        p       (:queue-path config)
+        q       (queue id {:transient  true
+                           :queue-path p})]
     (assoc process
-           :stop stop
-           :futures (join-fork process stop q)
+           :unblock unblock
+           :futures (join-fork process unblock q)
            :backing-queue q)))
 
 (defmethod start-processor-impl ::imperative
   [{:keys [id] :as process}]
-  (let [stop (atom nil)]
+  (let [unblock (atom nil)]
     (assoc process
-           :stop stop
-           :futures (imperative process stop))))
+           :unblock unblock
+           :futures (imperative process unblock))))
 
 (defn coerce-cardinality-impl
   [[t form]]
@@ -903,11 +904,11 @@
     process))
 
 (defn stop-processor!
-  [{:keys [id state stop]
+  [{:keys [id state unblock]
     :as   process}]
   (if (compare-and-set! state ::started ::stopped)
     (do (log/info "Stopping" id)
-        (when stop (reset! stop true))
+        (when unblock (reset! unblock true))
         (ensure-done process)
         (assoc process :state (atom nil)))
     process))
