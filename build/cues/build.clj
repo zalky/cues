@@ -22,10 +22,10 @@
                 ::tx        {:queue-meta #{:q/t :q/time :tx/t}}}
    :processors [{:id ::s1}
                 {:id  ::processor
-                 :in  {::s1 :in}
-                 :out {::tx :out}}
+                 :in  {:in ::s1}
+                 :out {:out ::tx}}
                 {:id   ::doc-store
-                 :in   {::tx :in}
+                 :in   {:in ::tx}
                  :opts {:db db}}]})
 
 (defonce db

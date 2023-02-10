@@ -988,13 +988,13 @@
      (map :id queues*)
      (map all-messages queues*))))
 
-(s/def ::id-map        (s/map-of ::id keyword?))
-(s/def ::in            ::id-map)
-(s/def ::out           ::id-map)
-(s/def :map/tailers    ::id-map)
-(s/def :map/appenders  ::id-map)
-(s/def :map/source     (s/keys :req-un [::id]))
-(s/def ::fn            ::id)
+(s/def ::id-map       (s/map-of keyword? ::id))
+(s/def ::in           ::id-map)
+(s/def ::out          ::id-map)
+(s/def :map/tailers   ::id-map)
+(s/def :map/appenders ::id-map)
+(s/def :map/source    (s/keys :req-un [::id]))
+(s/def ::fn           ::id)
 
 (defn- coerce-cardinality
   [[t form]]
@@ -1107,14 +1107,16 @@
 (defn- processor->fn
   [{:keys [id in out tailers appenders]
     :as   parsed}]
-  (let [rev       (util/reverse-map out)
+  (let [rev       (util/reverse-map in)
+        t         (util/reverse-map tailers)
+        a         (util/reverse-map appenders)
         filter-fn (msg-filter-fn parsed)]
     (-> parsed
         (get-handler)
         (wrap-guard-out)
-        (wrap-imperative tailers appenders)
+        (wrap-imperative t a)
         (wrap-msg-filter filter-fn)
-        (wrap-msg-keys in rev))))
+        (wrap-msg-keys rev out))))
 
 (defn- parse-processor
   [process]
@@ -1129,11 +1131,11 @@
     (util/some-entries
      (case t
        ::processor {:id        id
-                    :in        (keys in)
-                    :out       (keys out)
+                    :in        (vals in)
+                    :out       (vals out)
                     :topics    topics
-                    :tailers   (keys tailers)
-                    :appenders (keys appenders)
+                    :tailers   (vals tailers)
+                    :appenders (vals appenders)
                     :opts      opts
                     :fn        (processor->fn parsed)}
        ::source    {:id   id
