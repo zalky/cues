@@ -54,7 +54,7 @@
   `(let ~binding
      (let [~sym (-> ~sym
                     (util/assoc-nil :error-queue ::error)
-                    (util/assoc-nil :queue-opts-all {:queue-meta true})
+                    (update :queue-opts util/assoc-nil ::q/default {:queue-meta #{:q/t}})
                     (q/graph-impl)
                     (q/start-graph!))]
        (try

@@ -255,12 +255,12 @@
   nil)
 
 (defn- materialize-meta
-  [id t {{tx  :tx/t
-          :as m} :q/meta
-         :as     msg}]
-  (cond-> msg
-    m          (assoc-in [:q/meta :q/queue id :q/t] t)
-    (true? tx) (assoc-in [:q/meta :tx/t] t)))
+  [id t {m :q/meta :as msg}]
+  (let [tx? (true? (get m :tx/t))
+        t?  (true? (get-in m [:q/queue id :q/t]))]
+    (cond-> msg
+      tx? (assoc-in [:q/meta :tx/t] t)
+      t?  (assoc-in [:q/meta :q/queue id :q/t] t))))
 
 (defn read
   "Reads message from tailer, materializing metadata in message."
@@ -301,21 +301,18 @@
   "Returns the index written by the appender. Only rebind for testing!"
   (fn [_ i] i))
 
-(defn- lift-map
-  [m]
-  (if (map? m) m {}))
-
 (defn- add-meta
   [{id              :id
     {m :queue-meta} :opts} msg]
-  (let [{tx :tx-queue
-         ts :timestamp} (lift-map m)]
+  (let [t  (get m :q/t)
+        tx (get m :tx/t)
+        ts (get m :q/time)]
     (cond-> msg
-      (not m)   (dissoc :q/meta)
-      m         (update :q/meta lift-map)
-      (= id tx) (assoc-in [:q/meta :tx/t] true)
-      ts        (assoc-in [:q/meta :q/queue id :q/time]
-                          (Instant/now)))))
+      (not m) (dissoc :q/meta)
+      t       (assoc-in [:q/meta :q/queue id :q/t] true)
+      tx      (assoc-in [:q/meta :tx/t] true)
+      ts      (assoc-in [:q/meta :q/queue id :q/time]
+                        (Instant/now)))))
 
 (defn write
   "The queue controller approximately follows the index of the queue: it
@@ -448,7 +445,7 @@
 
 (defn- merge-meta?
   [config]
-  (get-in config [:queue-opts-all :queue-meta] true))
+  (get-in config [:queue-opts :queue-meta] true))
 
 (defn- merge-meta
   [in out config]
@@ -692,7 +689,7 @@
   [{:keys [id config] :as process}]
   (let [unblock (atom nil)
         p       (-> config
-                    :queue-opts-all
+                    :queue-opts
                     :queue-path)
         q       (queue id {:transient  true
                            :queue-path p})]
@@ -794,10 +791,10 @@
 
 (defn- build-config
   [g process]
-  (let [opts-all (:queue-opts-all g)]
+  (let [default (get-in g [:queue-opts ::default])]
     (-> process
         (select-keys processor-config-keys)
-        (assoc :queue-opts-all opts-all))))
+        (assoc :queue-opts default))))
 
 (defn- build-processor
   [{e      :error-queue
@@ -832,14 +829,11 @@
           (util/seqify tailers)))
 
 (defn- build-queue
-  [{opts-all :queue-opts-all
-    opts     :queue-opts
-    :as      g} id]
+  [{opts :queue-opts :as g} id]
   (when (and id (not (get-one-q g id)))
-    (let [q-opts (get opts id)]
-      (->> (util/update-contains q-opts :queue-meta dissoc :tx-queue)
-           (merge opts-all)
-           (queue id)))))
+    (->> (get opts id)
+         (merge (::default opts))
+         (queue id))))
 
 (defn- build-queues
   [{:keys [error-queue] :as g} processors]
