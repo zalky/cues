@@ -40,7 +40,6 @@
   [f]
   (binding [q/last-read-index last-read-index-from-1
             q/to-index        to-index-from-1
-            q/timestamp       (fn [_ msg] msg)
             q/written-index   written-index-from-1]
     (f)))
 
@@ -55,6 +54,7 @@
   `(let ~binding
      (let [~sym (-> ~sym
                     (util/assoc-nil :error-queue ::error)
+                    (util/assoc-nil :queue-opts-all {:queue-meta true})
                     (q/graph-impl)
                     (q/start-graph!))]
        (try

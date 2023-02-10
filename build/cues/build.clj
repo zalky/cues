@@ -17,8 +17,8 @@
 (defn graph-spec
   [db]
   {:source         ::s1
-   :tx-queue       ::tx
-   :queue-opts-all {:queue-path "data/example"}
+   :queue-opts-all {:queue-meta {:tx-queue ::tx}
+                    :queue-path "data/example"}
    :processors     [{:id ::s1}
                     {:id  ::processor
                      :in  {::s1 :in}

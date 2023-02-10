@@ -59,7 +59,7 @@
   (cond-> e
     (nil? (get-in e attrs)) (assoc-in attrs v)))
 
-(defn update-some
+(defn update-contains
   "Only update if value exists at the given attr."
   [e attr f & args]
   (if (contains? e attr)

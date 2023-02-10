@@ -254,20 +254,23 @@
        (to-index tailer))
   nil)
 
+(defn- materialize-meta
+  [id t {{tx  :tx/t
+          :as m} :q/meta
+         :as     msg}]
+  (cond-> msg
+    m          (assoc-in [:q/meta :q/queue id :q/t] t)
+    (true? tx) (assoc-in [:q/meta :tx/t] t)))
+
 (defn read
   "Reads message from tailer, materializing metadata in message."
-  [{{id              :id
-     {tx  :tx-queue
-      m?  :queue-meta?
-      :or {m? true}} :opts} :queue
-    t-impl                  :tailer-impl
-    :as                     tailer}]
+  [{{id :id} :queue
+    t-impl   :tailer-impl
+    :as      tailer}]
   {:pre [(tailer? tailer)]}
   (when-let [msg (tail/read! t-impl)]
     (let [t (last-read-index tailer)]
-      (cond-> msg
-        (and m? t)  (assoc-in [:q/meta :q/queue id :q/t] t)
-        (and m? tx) (assoc-in [:q/meta :tx/t] t)))))
+      (materialize-meta id t msg))))
 
 (defn peek
   "Like read, but does not advance tailer."
@@ -294,17 +297,25 @@
   [queue new-index]
   (update queue :controller swap! mono-inc new-index))
 
-(def ^:dynamic timestamp
-  "Only rebind for testing!"
-  (fn [{id              :id
-        {m?  :queue-meta?
-         :or {m? true}} :opts} msg]
-    (cond-> msg
-      m? (assoc-in [:q/meta :q/queue id :q/time] (Instant/now)))))
-
 (def ^:dynamic written-index
-  "Only rebind for testing!"
+  "Returns the index written by the appender. Only rebind for testing!"
   (fn [_ i] i))
+
+(defn- lift-map
+  [m]
+  (if (map? m) m {}))
+
+(defn- add-meta
+  [{id              :id
+    {m :queue-meta} :opts} msg]
+  (let [{tx :tx-queue
+         ts :timestamp} (lift-map m)]
+    (cond-> msg
+      (not m)   (dissoc :q/meta)
+      m         (update :q/meta lift-map)
+      (= id tx) (assoc-in [:q/meta :tx/t] true)
+      ts        (assoc-in [:q/meta :q/queue id :q/time]
+                          (Instant/now)))))
 
 (defn write
   "The queue controller approximately follows the index of the queue: it
@@ -315,7 +326,7 @@
   {:pre [(appender? appender)
          (map? msg)]}
   (let [index (->> msg
-                   (timestamp q)
+                   (add-meta q)
                    (app/write! a))]
     (controller-inc! q index)
     (written-index q index)))
@@ -437,7 +448,7 @@
 
 (defn- merge-meta?
   [config]
-  (get-in config [:queue-opts-all :queue-meta?] true))
+  (get-in config [:queue-opts-all :queue-meta] true))
 
 (defn- merge-meta
   [in out config]
@@ -821,14 +832,14 @@
           (util/seqify tailers)))
 
 (defn- build-queue
-  [{tx-queue :tx-queue
-    opts-all :queue-opts-all
+  [{opts-all :queue-opts-all
     opts     :queue-opts
     :as      g} id]
   (when (and id (not (get-one-q g id)))
-    (->> {:tx-queue (= tx-queue id)}
-         (merge (get opts id) opts-all)
-         (queue id))))
+    (let [q-opts (get opts id)]
+      (->> (util/update-contains q-opts :queue-meta dissoc :tx-queue)
+           (merge opts-all)
+           (queue id)))))
 
 (defn- build-queues
   [{:keys [error-queue] :as g} processors]

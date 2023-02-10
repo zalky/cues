@@ -118,18 +118,18 @@
 (t/deftest graph-test-pipe
   (let [done (promise)]
     (qt/with-graph-and-delete
-      [g {:processors [{:id  ::source
-                        :out ::q1}
-                       {:id  ::pipe
-                        :fn  (p-fn {:reduce-fn +
-                                    :map-fn    inc
-                                    :to        [::q2]})
-                        :in  ::q1
-                        :out ::q2}
-                       {:id ::sink-pipe
-                        :fn (x= done ::q2 4)
-                        :in ::q2}]
-          :tx-queue   ::q1}]
+      [g {:processors     [{:id  ::source
+                            :out ::q1}
+                           {:id  ::pipe
+                            :fn  (p-fn {:reduce-fn +
+                                        :map-fn    inc
+                                        :to        [::q2]})
+                            :in  ::q1
+                            :out ::q2}
+                           {:id ::sink-pipe
+                            :fn (x= done ::q2 4)
+                            :in ::q2}]
+          :queue-opts-all {:queue-meta {:tx-queue ::q1}}}]
       (q/send! g ::source {:x 1})
       (q/send! g ::source {:x 2})
       (q/send! g ::source {:x 3})
@@ -202,20 +202,20 @@
 (t/deftest graph-test-imperative
   (let [done (promise)]
     (qt/with-graph-and-delete
-      [g {:processors [{:id  ::source
-                        :out ::q1}
-                       {:id        ::pipe
-                        :fn        (fn [{{a ::q2} :appenders
-                                         :as      process} {in-msg ::q1}]
-                                     (->> {:x (inc (:x in-msg))}
-                                          (preserve-meta in-msg)
-                                          (q/write a)))
-                        :in        ::q1
-                        :appenders ::q2}
-                       {:id ::sink-pipe
-                        :fn (x= done ::q2 4)
-                        :in ::q2}]
-          :tx-queue   ::q1}]
+      [g {:processors     [{:id  ::source
+                            :out ::q1}
+                           {:id        ::pipe
+                            :fn        (fn [{{a ::q2} :appenders
+                                             :as      process} {in-msg ::q1}]
+                                         (->> {:x (inc (:x in-msg))}
+                                              (preserve-meta in-msg)
+                                              (q/write a)))
+                            :in        ::q1
+                            :appenders ::q2}
+                           {:id ::sink-pipe
+                            :fn (x= done ::q2 4)
+                            :in ::q2}]
+          :queue-opts-all {:queue-meta {:tx-queue ::q1}}}]
       (q/send! g ::source {:x 1})
       (q/send! g ::source {:x 2})
       (q/send! g ::source {:x 3})
@@ -235,19 +235,19 @@
 (t/deftest graph-test-join
   (let [done (promise)]
     (qt/with-graph-and-delete
-      [g {:processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
-                       {:id  ::join
-                        :fn  (p-fn {:reduce-fn +
-                                    :to        [::q3]})
-                        :in  [::q1 ::q2]
-                        :out ::q3}
-                       {:id ::sink-join
-                        :fn (x= done ::q3 7)
-                        :in ::q3}]
-          :tx-queue   ::q3}]
+      [g {:processors     [{:id  ::s1
+                            :out ::q1}
+                           {:id  ::s2
+                            :out ::q2}
+                           {:id  ::join
+                            :fn  (p-fn {:reduce-fn +
+                                        :to        [::q3]})
+                            :in  [::q1 ::q2]
+                            :out ::q3}
+                           {:id ::sink-join
+                            :fn (x= done ::q3 7)
+                            :in ::q3}]
+          :queue-opts-all {:queue-meta {:tx-queue ::q3}}}]
       (q/send! g ::s1 {:x 1})
       (q/send! g ::s1 {:x 3})
       (q/send! g ::s2 {:x 2})
@@ -272,22 +272,22 @@
   (let [q3-done (promise)
         q4-done (promise)]
     (qt/with-graph-and-delete
-      [g {:processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
-                       {:id  ::join-fork
-                        :fn  (p-fn {:reduce-fn +
-                                    :to        [::q3 ::q4]})
-                        :in  [::q1 ::q2]
-                        :out [::q3 ::q4]}
-                       {:id ::k1
-                        :fn (x= q3-done ::q3 7)
-                        :in ::q3}
-                       {:id ::k2
-                        :fn (x= q4-done ::q4 7)
-                        :in ::q4}]
-          :tx-queue   ::q1}]
+      [g {:processors     [{:id  ::s1
+                            :out ::q1}
+                           {:id  ::s2
+                            :out ::q2}
+                           {:id  ::join-fork
+                            :fn  (p-fn {:reduce-fn +
+                                        :to        [::q3 ::q4]})
+                            :in  [::q1 ::q2]
+                            :out [::q3 ::q4]}
+                           {:id ::k1
+                            :fn (x= q3-done ::q3 7)
+                            :in ::q3}
+                           {:id ::k2
+                            :fn (x= q4-done ::q4 7)
+                            :in ::q4}]
+          :queue-opts-all {:queue-meta {:tx-queue ::q1}}}]
       (q/send! g ::s1 {:x 1})
       (q/send! g ::s1 {:x 3})
       (q/send! g ::s2 {:x 2})
@@ -321,25 +321,25 @@
   (let [q3-done (promise)
         q4-done (promise)]
     (qt/with-graph-and-delete
-      [g {:processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
-                       {:id  ::join-fork-conditional
-                        :fn  (fn [_ msgs]
-                               (let [n   (transduce (map :x) + (vals msgs))
-                                     msg {:x n}]
-                                 {::q3 (when (even? n) msg)
-                                  ::q4 (when (odd? n) msg)}))
-                        :in  [::q1 ::q2]
-                        :out [::q3 ::q4]}
-                       {:id ::k1
-                        :fn (x= q3-done ::q3 2)
-                        :in ::q3}
-                       {:id ::k2
-                        :fn (x= q4-done ::q4 5)
-                        :in ::q4}]
-          :tx-queue   ::q1}]
+      [g {:processors     [{:id  ::s1
+                            :out ::q1}
+                           {:id  ::s2
+                            :out ::q2}
+                           {:id  ::join-fork-conditional
+                            :fn  (fn [_ msgs]
+                                   (let [n   (transduce (map :x) + (vals msgs))
+                                         msg {:x n}]
+                                     {::q3 (when (even? n) msg)
+                                      ::q4 (when (odd? n) msg)}))
+                            :in  [::q1 ::q2]
+                            :out [::q3 ::q4]}
+                           {:id ::k1
+                            :fn (x= q3-done ::q3 2)
+                            :in ::q3}
+                           {:id ::k2
+                            :fn (x= q4-done ::q4 5)
+                            :in ::q4}]
+          :queue-opts-all {:queue-meta {:tx-queue ::q1}}}]
       (q/send! g ::s1 {:x 1})
       (q/send! g ::s1 {:x 2})
       (q/send! g ::s2 {:x 1})
@@ -387,17 +387,19 @@
                    (update ::qt/error qt/simplify-exceptions))
                {::qt/error [{:kr/type           :kr.type.err/processor
                              :err/cause         {:cause "Oops"}
-                             :err.proc/config   {:id  ::pipe-error
-                                                 :in  ::q1
-                                                 :out ::q2}
+                             :err.proc/config   {:id             ::pipe-error
+                                                 :in             ::q1
+                                                 :out            ::q2
+                                                 :queue-opts-all {:queue-meta true}}
                              :err.proc/messages {::q1 {:x      1
                                                        :q/meta {:q/queue {::q1 {:q/t 1}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
                             {:kr/type           :kr.type.err/processor
                              :err/cause         {:cause "Oops"}
-                             :err.proc/config   {:id  ::pipe-error
-                                                 :in  ::q1
-                                                 :out ::q2}
+                             :err.proc/config   {:id             ::pipe-error
+                                                 :in             ::q1
+                                                 :out            ::q2
+                                                 :queue-opts-all {:queue-meta true}}
                              :err.proc/messages {::q1 {:x      3
                                                        :q/meta {:q/queue {::q1 {:q/t 3}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 2}}}}]
