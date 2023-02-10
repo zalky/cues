@@ -15,7 +15,7 @@
                     :exec-fn     runway.core/exec
                     :exec-args   {runway.core/watcher {}
                                   runway.nrepl/server {}
-                                  cues.repl           true}}
+                                  cues.dev            true}}
            :test   {:extra-paths ["test"]
                     :extra-deps  {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
                                                              :sha     "705ad25bbf0228b1c38d0244a36001c2987d7337"}}

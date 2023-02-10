@@ -195,6 +195,10 @@
                           {:x 5 :q/meta {:q/queue {::q1 {:q/t 2}
                                                    ::q3 {:q/t 4}}}}]})))))
 
+(defn- preserve-meta
+  [in out]
+  (assoc out :q/meta (:q/meta in)))
+
 (t/deftest graph-test-imperative
   (let [done (promise)]
     (qt/with-graph-and-delete
@@ -204,7 +208,7 @@
                         :fn        (fn [{{a ::q2} :appenders
                                          :as      process} {in-msg ::q1}]
                                      (->> {:x (inc (:x in-msg))}
-                                          (q/preserve-meta in-msg)
+                                          (preserve-meta in-msg)
                                           (q/write a)))
                         :in        ::q1
                         :appenders ::q2}

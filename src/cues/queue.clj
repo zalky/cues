@@ -255,17 +255,19 @@
   nil)
 
 (defn read
-  "Reads message from tailer, inserting index into message."
-  [{{id             :id
-     {tx :tx-queue} :opts} :queue
-    t-impl                 :tailer-impl
-    :as                    tailer}]
+  "Reads message from tailer, materializing metadata in message."
+  [{{id              :id
+     {tx  :tx-queue
+      m?  :queue-meta?
+      :or {m? true}} :opts} :queue
+    t-impl                  :tailer-impl
+    :as                     tailer}]
   {:pre [(tailer? tailer)]}
   (when-let [msg (tail/read! t-impl)]
     (let [t (last-read-index tailer)]
       (cond-> msg
-        t  (assoc-in [:q/meta :q/queue id :q/t] t)
-        tx (assoc-in [:q/meta :tx/t] t)))))
+        (and m? t)  (assoc-in [:q/meta :q/queue id :q/t] t)
+        (and m? tx) (assoc-in [:q/meta :tx/t] t)))))
 
 (defn peek
   "Like read, but does not advance tailer."
@@ -294,10 +296,11 @@
 
 (def ^:dynamic timestamp
   "Only rebind for testing!"
-  (fn [id msg]
-    (assoc-in msg
-              [:q/meta :q/queue id :q/time]
-              (Instant/now))))
+  (fn [{id              :id
+        {m?  :queue-meta?
+         :or {m? true}} :opts} msg]
+    (cond-> msg
+      m? (assoc-in [:q/meta :q/queue id :q/time] (Instant/now)))))
 
 (def ^:dynamic written-index
   "Only rebind for testing!"
@@ -306,14 +309,13 @@
 (defn write
   "The queue controller approximately follows the index of the queue: it
   can fall behind, but must be eventually consistent."
-  [{{id  :id
-     :as q} :queue
-    a       :appender-impl
-    :as     appender} msg]
+  [{q   :queue
+    a   :appender-impl
+    :as appender} msg]
   {:pre [(appender? appender)
          (map? msg)]}
   (let [index (->> msg
-                   (timestamp id)
+                   (timestamp q)
                    (app/write! a))]
     (controller-inc! q index)
     (written-index q index)))
@@ -433,21 +435,22 @@
             out "sink"}} :config} e]
   (log/error e (format "%s (%s -> %s)" id in out)))
 
-(defn- merge-meta
-  [in out]
-  (when out
-    (let [m (->> (vals in)
-                 (map :q/meta)
-                 (apply util/merge-deep))]
-      (util/map-vals
-       (fn [v]
-         (when v
-           (assoc v :q/meta m)))
-       out))))
+(defn- merge-meta?
+  [config]
+  (get-in config [:queue-opts-all :queue-meta?] true))
 
-(defn preserve-meta
-  [in out]
-  (assoc out :q/meta (:q/meta in)))
+(defn- merge-meta
+  [in out config]
+  (when out
+    (if (merge-meta? config)
+      (let [m (->> (vals in)
+                   (map :q/meta)
+                   (apply util/merge-deep))]
+        (util/map-vals
+         (fn [v]
+           (when v (assoc v :q/meta m)))
+         out))
+      out)))
 
 (defn- get-result
   [process result]
@@ -490,6 +493,7 @@
   [{f         :fn
     appender  :appender
     result-fn :result-fn
+    config    :config
     :or       {result-fn get-result}
     :as       process}]
   (if-let [in (processor-read process)]
@@ -497,7 +501,7 @@
                   (select-processor)
                   (f in))]
       (when appender
-        (->> (merge-meta in out)
+        (->> (merge-meta in out config)
              (result-fn process))))
     (recover process)))
 
@@ -676,7 +680,9 @@
   ;; Guarantees idempotency via backing queue.
   [{:keys [id config] :as process}]
   (let [unblock (atom nil)
-        p       (:queue-path config)
+        p       (-> config
+                    :queue-opts-all
+                    :queue-path)
         q       (queue id {:transient  true
                            :queue-path p})]
     (assoc process
@@ -776,9 +782,11 @@
   [:id :in :out :tailers :appenders :topics :types])
 
 (defn- build-config
-  [{p :queue-path} process]
-  (cond-> (select-keys process processor-config-keys)
-    p (assoc :queue-path p)))
+  [g process]
+  (let [opts-all (:queue-opts-all g)]
+    (-> process
+        (select-keys processor-config-keys)
+        (assoc :queue-opts-all opts-all))))
 
 (defn- build-processor
   [{e      :error-queue
@@ -814,13 +822,12 @@
 
 (defn- build-queue
   [{tx-queue :tx-queue
-    p        :queue-path
+    opts-all :queue-opts-all
     opts     :queue-opts
     :as      g} id]
   (when (and id (not (get-one-q g id)))
-    (->> {:tx-queue   (= tx-queue id)
-          :queue-path p}
-         (merge (get opts id))
+    (->> {:tx-queue (= tx-queue id)}
+         (merge (get opts id) opts-all)
          (queue id))))
 
 (defn- build-queues
@@ -1043,8 +1050,8 @@
   (fn [process msgs]
     (let [r (handler process msgs)]
       (when (-> process
-                :config
-                :out)
+                (:config)
+                (:out))
         r))))
 
 (defn- wrap-msg-keys

@@ -16,16 +16,16 @@
 
 (defn graph-spec
   [db]
-  {:source     ::s1
-   :tx-queue   ::tx
-   :queue-path "data/example"
-   :processors [{:id ::s1}
-                {:id  ::processor
-                 :in  {::s1 :in}
-                 :out {::tx :out}}
-                {:id   ::doc-store
-                 :in   {::tx :in}
-                 :opts {:db db}}]})
+  {:source         ::s1
+   :tx-queue       ::tx
+   :queue-opts-all {:queue-path "data/example"}
+   :processors     [{:id ::s1}
+                    {:id  ::processor
+                     :in  {::s1 :in}
+                     :out {::tx :out}}
+                    {:id   ::doc-store
+                     :in   {::tx :in}
+                     :opts {:db db}}]})
 
 (defonce db
   (atom {}))
