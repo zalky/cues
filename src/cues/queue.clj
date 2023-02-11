@@ -255,9 +255,11 @@
   nil)
 
 (defn- materialize-meta
-  [id t {m :q/meta :as msg}]
+  [id tailer {m :q/meta :as msg}]
   (let [tx? (true? (get m :tx/t))
-        t?  (true? (get-in m [:q/queue id :q/t]))]
+        t?  (true? (get-in m [:q/queue id :q/t]))
+        t   (when (or tx? t?)
+              (last-read-index tailer))]
     (cond-> msg
       tx? (assoc-in [:q/meta :tx/t] t)
       t?  (assoc-in [:q/meta :q/queue id :q/t] t))))
@@ -269,8 +271,7 @@
     :as      tailer}]
   {:pre [(tailer? tailer)]}
   (when-let [msg (tail/read! t-impl)]
-    (let [t (last-read-index tailer)]
-      (materialize-meta id t msg))))
+    (materialize-meta id tailer msg)))
 
 (defn peek
   "Like read, but does not advance tailer."

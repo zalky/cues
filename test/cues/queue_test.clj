@@ -475,13 +475,12 @@
   (b/quick-bench
    (do (q/write a {:x 1})
        (q/read!! t)))
-
-  "Evaluation count : 237786 in 6 samples of 39631 calls.
-               Execution time mean : 2.569090 µs
-      Execution time std-deviation : 75.300750 ns
-     Execution time lower quantile : 2.488703 µs ( 2.5%)
-     Execution time upper quantile : 2.642575 µs (97.5%)
-                     Overhead used : 2.041010 ns"
+  "Evaluation count : 252834 in 6 samples of 42139 calls.
+               Execution time mean : 2.389696 µs
+      Execution time std-deviation : 64.305722 ns
+     Execution time lower quantile : 2.340823 µs ( 2.5%)
+     Execution time upper quantile : 2.466880 µs (97.5%)
+                     Overhead used : 2.035620 ns"
 
   (qt/stress-test 1000000)
   "Elapsed time: 7153.911291 msecs"
