@@ -302,18 +302,23 @@
   "Returns the index written by the appender. Only rebind for testing!"
   (fn [_ i] i))
 
+(defn- lift-set
+  [x]
+  (if (set? x) x #{}))
+
 (defn- add-meta
   [{id              :id
     {m :queue-meta} :opts} msg]
-  (let [t  (get m :q/t)
-        tx (get m :tx/t)
-        ts (get m :q/time)]
+  (let [m* (lift-set m)
+        t  (get m* :q/t)
+        tx (get m* :tx/t)
+        ts (get m* :q/time)]
     (cond-> msg
-      (not m) (dissoc :q/meta)
-      t       (assoc-in [:q/meta :q/queue id :q/t] true)
-      tx      (assoc-in [:q/meta :tx/t] true)
-      ts      (assoc-in [:q/meta :q/queue id :q/time]
-                        (Instant/now)))))
+      (false? m) (dissoc :q/meta)
+      t          (assoc-in [:q/meta :q/queue id :q/t] true)
+      tx         (assoc-in [:q/meta :tx/t] true)
+      ts         (assoc-in [:q/meta :q/queue id :q/time]
+                           (Instant/now)))))
 
 (defn write
   "The queue controller approximately follows the index of the queue: it
@@ -980,6 +985,13 @@
   [queue]
   (with-tailer [t queue]
     (count (messages t))))
+
+(defn graph-messages
+  "Careful, this eagerly gets all messages in the queue!"
+  [{queues :queues} id]
+  (-> queues
+      (get id)
+      (all-messages)))
 
 (defn all-graph-messages
   "Careful, this eagerly gets all messages in the graph!"
