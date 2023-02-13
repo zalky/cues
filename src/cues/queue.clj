@@ -980,12 +980,6 @@
   (with-tailer [t queue]
     (doall (messages t))))
 
-(defn count-messages
-  "Lazily counts all messages in the cue!"
-  [queue]
-  (with-tailer [t queue]
-    (count (messages t))))
-
 (defn graph-messages
   "Careful, this eagerly gets all messages in the queue!"
   [{queues :queues} id]
