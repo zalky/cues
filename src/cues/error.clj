@@ -13,7 +13,7 @@
 (defn- error-merge
   [e caught]
   (let [data (ex-data caught)]
-    (if (:kr/type data)
+    (if (:q/type data)
       (merge e data)
       e)))
 

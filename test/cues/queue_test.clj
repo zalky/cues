@@ -385,7 +385,7 @@
         (is (done? done))
         (is (= (-> (q/all-graph-messages g)
                    (update ::qt/error qt/simplify-exceptions))
-               {::qt/error [{:kr/type           :kr.type.err/processor
+               {::qt/error [{:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id         ::pipe-error
                                                  :in         ::q1
@@ -394,7 +394,7 @@
                              :err.proc/messages {::q1 {:x      1
                                                        :q/meta {:q/queue {::q1 {:q/t 1}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
-                            {:kr/type           :kr.type.err/processor
+                            {:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id         ::pipe-error
                                                  :in         ::q1

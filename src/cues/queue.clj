@@ -539,7 +539,7 @@
 
 (defn- processor-error
   [{config :config} msgs]
-  {:kr/type           :kr.type.err/processor
+  {:q/type            :q.type.err/processor
    :err.proc/config   config
    :err.proc/messages msgs})
 
@@ -1050,7 +1050,7 @@
 (defn- types-filter
   [values msgs]
   (->> msgs
-       (filter #(some #{(:kr/type (val %))} values))
+       (filter #(some #{(:q/type (val %))} values))
        (into {})
        (not-empty)))
 

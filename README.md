@@ -728,7 +728,7 @@ Now you can read processor exceptions from the `::error` queue:
 ```clj
 (q/graph-messages g ::error)
 ;;=>
-({:kr/type           :kr.type.err/processor
+({:q/type            :q.type.err/processor
   :err.proc/config   {:id         :cues.build/processor
                       :in         :cues.build/source
                       :out        :cues.build/tx}
