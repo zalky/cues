@@ -11,16 +11,18 @@ For when distributed systems like Kafka are too much, durable-queue is
 not enough, and both are too slow.
 
 [ChronicleQueue](https://github.com/OpenHFT/Chronicle-Queue) is a
-broker-less queue framework that provides microsecond latencies when
-persisting data to disk. [Tape](https://github.com/mpenet/tape) is an
-excellent wrapper around ChronicleQueue that exposes an idiomatic
-Clojure API, but does not provide blocking or persistent tailers.
+broker-less queue framework that provides microsecond latencies
+(sometimes less) when persisting data to
+disk. [Tape](https://github.com/mpenet/tape) is an excellent wrapper
+around ChronicleQueue that exposes an idiomatic Clojure API, but does
+not provide blocking or persistent tailers.
 
 **Cues** extends both to provide:
 
 1. Persistent _blocking_ queues, persistent tailers, and appenders
 2. Processors for consuming and producing messages
 3. Graphs for connecting processors together via queues
+4. Error handling and message metadata
 
 By themselves, the blocking queues are similar to what durable-queue
 provides, just one or more orders of magnitude faster. They also come
@@ -57,18 +59,22 @@ tedious to work with once you start connecting systems together.
 
 You could just as easily start with the higher-level graph
 abstractions that hide most of the boiler-plate, but then you might
-want to circle back at some point to understanding the underlying
+want to circle back at some point to understand the underlying
 mechanics.
-
-Ultimately either is a great place to start.
 
 1. [Quick Start](#quick-start)
 2. [Primitives: Queues, Tailers, and Appenders](#queues)
 3. [Processors and Graphs](#processors-graphs)
+   - [Processors](#processors)
+   - [Graphs](#graphs)
+   - [Topic and Type Filters](#filters)
+   - [Topologies](#topologies)
+   - [Errors](#errors)
 4. [Queue Configuration](#configuration)
 5. [Queue Metadata](#metadata)
 6. [Utility Functions](#utilities)
-7. [ChronicleQueue Analytics (disabled by default)](#analytics)
+7. [Java 11 & 17](#java)
+8. [ChronicleQueue Analytics (disabled by default)](#analytics)
 
 ## Installation
 
@@ -193,28 +199,33 @@ To read the message back you use a tailer:
 ```
 
 Tailers are stateful: each tailer tracks its position on the queue
-that it is tailing. When it consumes a message from the queue, the
-tailer advances to the next index:
+that it is tailing. You can get the current _unread_ index of the
+tailer:
+
+```clj
+(q/index t)
+;; =>
+83313775607809
+```
+
+When it consumes a message from the queue, the tailer advances to the
+next index:
 
 ```clj
 (q/read t)
 ;; =>
 {:x 2}
-```
 
-Let's check the current _unread_ position of the tailer:
-
-```clj
 (q/index t)
 ;; =>
 83313775607810
 ```
 
-This tailer is one index ahead of the last message that we wrote at
-`83313775607809`. Note that while indices are guaranteed to increase
-monotonically, there is _no guarantee that they are contiguous_. In
-general you should avoid code that tries to predict future indices on
-the queue.
+This tailer is now one index ahead of the last message that we wrote
+at `83313775607809`. Note that while indices are guaranteed to
+increase monotonically, there is _no guarantee that they are
+contiguous_. In general you should avoid code that tries to predict
+future indices on the queue.
 
 Since we have already read two messages there will be no message at
 the tailer's current index. If we try another read with this tailer,
@@ -435,7 +446,7 @@ work with when combining primitives into systems. To this end, Cues
 provides two higher-level features:
 
 1. Processor functions
-2. A minimal DSL to connect processors into graphs
+2. A DSL to connect processors into graphs
 
 ### Processors <a name="processors"></a>
 
@@ -459,7 +470,7 @@ next section.
 
 The other argument is a map of input messages. Each message has an
 input binding, and there can be more than one message in the map. In
-this example, the message is bound to `:input`.
+`::processor`, the input message is bound to `:input`.
 
 Typically a processor will then take the input messages, and return
 one or more output messages in an output binding map. Here,
@@ -543,8 +554,8 @@ transacts them to the `db` provided via `:opts`:
 If you're familiar with Kafka, `::doc-store` would be analogous to a
 Sink Connector. Essentially this is an exit node for messages from the
 graph. The return value in a sink processor fn is discarded, and so
-`::doc-store` does not bother with an output binding. While a sink
-processor does not actually have to return `nil`, it is good practice.
+`::doc-store` does not bother with an output binding. A sink processor
+does not actually have to return `nil`, but it is good practice.
 
 You can also define processors similar to Kafka Source
 Connectors. This would be the third processor in the catalog:
@@ -595,12 +606,18 @@ the source:
 ```
 
 The message will move through the queues and the processors until it
-is deposited by the `::doc-store` sink in the `example-db`:
+is deposited in the `example-db` atom by the `::doc-store` sink:
 
 ```clj
 @example-db
 ;; =>
 {2 {:x 2}}   ; :x was incremented by ::processor
+
+;; get all the messages in the graph, each key is a queue
+(q/all-graph-messages g)
+;; =>
+{::source ({:x 1})
+ ::tx     ({:x 2})}
 ```
 
 You can stop the graph using:
@@ -615,7 +632,104 @@ And close it:
 (q/close-graph! g)
 ```
 
-### Topologies
+### Topic and Type Filters <a name="filters"></a>
+
+Cues provides an additional layer of control over how your messages
+pass through your graph: topic and type filters.
+
+For any processor spec, you can specify either one or more topics, or
+one or more types that the message must match for it to be handled by
+the processor. Messages that do not match are skipped.
+
+Here is a type filter:
+
+```clj
+{:id    ::doc-store
+ :types :q.type/doc
+ :in    {:in ::tx}}
+```
+
+This processor will only handle messages whose `:q/type` attribute is
+`:q.type/doc`:
+
+```clj
+;; yes
+{:q/type :q.type/doc
+ :attr   1
+ :q/meta {...}}
+
+;; no
+{:q/type  :q.type/control
+ :control :stop
+ :q/meta  {...}}
+
+;; no
+{:x 1}
+```
+
+Similarly, we can define topic filters:
+
+```clj
+{:id     ::db.a.query/processor
+ :topics #{:db.a/query :db.a/control}
+ :in     {:in  ::source}
+ :out    {:out ::tx}}
+```
+
+This processor will only handle messages whose `:q/topics` map
+contains a truthy value for at least one of the topics:
+
+```clj
+;; yes
+{:q/topics {:db.a/query [{:some [:domain :query]}]}
+ :q/meta   {...}}
+
+;; yes
+{:q/topics {:db.a/control true}
+ :control  :stop
+ :other    "context"
+ :q/meta   {...}}
+
+;; no
+{:q/topics {:db.a/write {:doc "doc"}
+            :db.a/log   true}
+ :q/meta   {...}}
+
+;; no
+{:x 1}
+```
+
+It is up to user code to decide whether the topic _value_ should
+contain meaningful data, or whether the data is contained in the main
+body of the message.
+
+However, Cues _will remove from the message any topics that do not
+match the filter_ before it is passed to the processor:
+
+```clj
+{:id     ::transactor
+ :topics #{:db.a/write
+           :db.b/write}
+ :in     {:in  ::source}
+ :out    {:out ::tx}}
+
+;; message on ::source queue
+{:q/topics {:db.a/write   [{:id 1 :doc "doc"}]
+            :db.a/control :stop}
+ :q/meta   {...}}
+
+;; message seen by ::transactor
+{:q/topics {:db.a/write [{:id 1 :doc "doc"}]}
+ :q/meta   {...}}
+```
+
+The intent of this is two-fold:
+
+1. Enforce a separation of concerns: if your processor is not
+   subscribed to a topic, it should not know about that topic
+2. Reduce the amount of unnecessary data that is written to queues
+
+### Topologies <a name="topologies"></a>
 
 Besides sources and sinks, there are other variations of processors.
 
@@ -691,7 +805,7 @@ There's a number of topology/dependency functions that are available
 in `cues.deps`. `cues.deps` basically provides the same functionality
 that
 [`com.stuartsierra/dependency`](https://github.com/stuartsierra/dependency)
-does, but extended to support disconnected graphs.
+does, but extends support for disconnected graphs.
 
 There's also a couple of helper functions in `cues.util` for merging
 and rebinding processor catalogs:
@@ -700,9 +814,9 @@ and rebinding processor catalogs:
 {:processors (-> (util/merge-catalogs cqrs/base-catalog
                                       features-a-catalog
                                       features-b-catalog)
-                 (util/bind-catalog {::my-other-error ::error
-                                     ::feature/tx    ::tx
-                                     ::features/undo ::undo}))}
+                 (util/bind-catalog {::my-other-error-id ::new-error-id
+                                     ::features/tx-id    ::new-tx-id
+                                     ::features/undo-id  ::new-undo-id}))}
 ```
 
 ### Errors <a name="errors"></a>
@@ -747,12 +861,34 @@ Now you can read processor exceptions from the `::error` queue:
                       :data  {:data "data"}}})
 ```
 
+By default cues will generate a generic error message like the one
+above.
+
+You can also add additional context to the error message with the
+`cues.error/on-error` macro:
+
+```clj
+(defmethod q/processor ::processor
+  [process {msg :input}]
+  (err/on-error {:q/type       :q.type.err/my-error-type
+                 :more-context context
+                 :more-data    data}
+    ...))
+```
+
+Here, the provided message map will be merged with the default error
+context and placed on the configured `:error-queue`.
+
+Of course, you can always catch and handle errors yourself, and place
+them on any queue of your choice. Ultimately errors are just like any
+other kind of data.
+
 ## Queue Configuration <a name="configuration"></a>
 
 Whether used as primitives or as part of a graph, the following queue
 properties are configurable:
 
-1. Path of queue data on disk
+1. Path of the queue data on disk
 2. Message metadata
 3. Queue data expiration and cycle handlers
 
@@ -764,6 +900,9 @@ constructor:
                             :queue-meta #{:q/t :q/time}
                             :transient  true}))
 ```
+
+The default path for all queues is `"data/queues"` in your project
+root.
 
 The same options can be passed to queues that participate in a graph
 using the queue id:
@@ -812,12 +951,13 @@ The full set of options are:
    is to leave the message unchanged when writing it to disk. However,
    if one or more metadata attributes are enabled via this setting,
    then the queue will ensure that those attributes are added to the
-   message.
+   message under a single `:q/meta` attribute.
 
-   There are three attributes in total, `#{:q/t :q/time :tx/t}`, which
-   are discussed in the next section. But as an example, the following
-   asserts that the `:q/t` attribute should be added for all queues,
-   and that all three attributes should be added for the `::tx` queue:
+   There are three configurable attributes, `#{:q/t :q/time :tx/t}`,
+   which are discussed in the next section. But as an example, the
+   following asserts that the `:q/t` attribute should be added for all
+   queues, and that all three attributes should be added for the
+   `::tx` queue:
 
    ```clj
    (defn example-graph
@@ -838,8 +978,9 @@ The full set of options are:
 
 3. **`:transient`**: By default all messages written to disk persist
    forever. Setting `:transient true` will configure the roll-cycle of
-   queue data files to daily, and for data files to be deleted after
-   10 cycles (10 days).
+   queue data files to be daily, and for data files to be deleted
+   after 10 cycles (10 days). With `:transient true` you are only ever
+   storing 10 days of data.
 
 4. All the options supported by [Tape's underlying
    implementation](https://github.com/mpenet/tape/blob/615293e2d9eeaac36b5024f9ca1efc80169ac75c/src/qbits/tape/queue.clj#L26-L45)
@@ -851,9 +992,12 @@ The full set of options are:
 
 ## Queue Metadata <a name="metadata"></a>
 
-Queues can be configured to automatically include metadata in
-messages. There are three metadata attributes `:q/t`, `:q/time`, and
-`:tx/t`:
+Queues can be configured to automatically add metadata to messages
+when they are persisted.
+
+There are three metadata attributes `:q/t`, `:q/time`, and
+`:tx/t`. Each of these is added to the body of the message under the
+root `:q/meta` attribute:
 
 ```clj
 (first (q/graph-messages g ::tx))
@@ -867,13 +1011,18 @@ messages. There are three metadata attributes `:q/t`, `:q/time`, and
 ```
 
 - **`:q/t`** is the index on the queue at which the message was
-  written. If `:q/t` is enabled on multiple queues, the provenance of
-  each message will accumulate as it passes from one queue to the
-  next. You would typically use `:q/t` for audit or debugging
-  purposes.
+  written. This is a _per queue_ metadata attribute. If `:q/t` is
+  enabled on multiple queues, the provenance of each message will
+  accumulate as it passes from one queue to the next. You would
+  typically use `:q/t` for audit or debugging purposes. In the above
+  example, we see that this message happens to have the same index on
+  both the `::source` and the `::tx` queues: `83318070575104`. This is
+  not always going to be the case.
 
 - **`:q/time`** is similar, except instead of an index, it collects
-  the time instant at which the message was written to that queue.
+  the time instant at which the message was written to that queue. In
+  the example above we can see that the message timestamps between the
+  `::source` and the `::tx` queue are a few microseconds apart.
 
 - **`:tx/t`** is identical to `:q/t` in one sense: it is also derived
   from the index on the queue at which the message was
@@ -881,13 +1030,15 @@ messages. There are three metadata attributes `:q/t`, `:q/time`, and
   relative to a single queue. Rather, `:tx/t` is meant to represent a
   global transaction t that can be used to achieve
   [serializability](https://en.wikipedia.org/wiki/Serializability) (in
-  the transactional sense) of messages anywhere. Typically you would
-  enable `:tx/t` on one queue, and use this as your source of truth
-  throughout the rest of the graph. However achieving serializability
-  also depends to a great extent on the topology of the graph, and the
-  nature of the processors. Simply enabling `:tx/t` will not by itself
-  be enough to ensure serializability. You need to understand how the
-  properties of your graph and processors determine serializability.
+  the transactional sense) of messages anywhere.
+
+  Typically you would enable `:tx/t` on one queue, and use this as
+  your source of truth throughout the rest of the graph. However
+  achieving serializability also depends to a great extent on the
+  topology of the graph, and the nature of the processors. Simply
+  enabling `:tx/t` will not by itself be enough to ensure
+  serializability. You need to understand how the properties of your
+  graph and processors determine serializability.
 
 ## Utility Functions <a name="utilities"></a>
 
@@ -931,6 +1082,28 @@ There are also a set of functions for managing queue files:
 (q/delete-all-queues "data/example")
 ```
 
+## Java 11 & 17 <a name="java"></a>
+
+ChronicleQueue [works under both Java 11 and
+17](https://chronicle.software/chronicle-support-java-17/). However
+some JVM options need to be set:
+
+```clj
+{:cues/j17 {:jvm-opts ["--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED"
+                       "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"
+                       "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED"
+                       "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"
+                       "--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED"
+                       "--add-opens=java.base/java.lang=ALL-UNNAMED"
+                       "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+                       "--add-opens=java.base/java.io=ALL-UNNAMED"
+                       "--add-opens=java.base/java.util=ALL-UNNAMED"]}}
+```
+
+See the Cues
+[`deps.edn`](https://github.com/zalky/cues/blob/main/deps.edn#L30-L38)
+file for what this looks like as an alias.
+
 ## ChronicleQueue Analytics (disabled by default) <a name="analytics"></a>
 
 ChronicleQueue is a great open source product, but it enables
@@ -957,7 +1130,7 @@ file in the user's home directory.
 First you probably want to check out the
 [ChronicleQueue](https://github.com/OpenHFT/Chronicle-Queue)
 documentation, as well as their
-[FAQ](https://github.com/OpenHFT/Chronicle-Queue/blob/ea/docs/FAQ.adoc)
+[FAQ](https://github.com/OpenHFT/Chronicle-Queue/blob/ea/docs/FAQ.adoc).
 
 Otherwise you can either submit an issue here on Github, or tag me
 (`@zalky`) with your question in the `#clojure` channel on the
