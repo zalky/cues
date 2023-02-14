@@ -1,5 +1,5 @@
 (ns cues.error
-  (:require [cues.util :as util]))
+  (:require [cinch.core :as util]))
 
 (defn- error-message
   [e caught]

@@ -3,7 +3,7 @@
             [clojure.test :as t :refer [is]]
             [cues.queue :as q]
             [cues.queue.test :as qt]
-            [cues.util :as util]
+            [cues.util :as cutil]
             [taoensso.timbre :as log]
 
             [cues.log]))                ; Ensure logging is configured for tests.
@@ -455,7 +455,7 @@
                              (done? q4-done timeout))))
           :counts   (->> g
                          (:queues)
-                         (util/map-vals q/count-messages))})))))
+                         (cutil/map-vals (comp count q/all-messages)))})))))
 
 (comment
   ;; This measure a single round-trip read + write, with blocking. The

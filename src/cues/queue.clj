@@ -1,13 +1,15 @@
 (ns cues.queue
   (:refer-clojure :exclude [read peek])
-  (:require [clojure.java.io :as io]
+  (:require [cinch.core :as util]
+            [cinch.spec :as s*]
+            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [cues.controller-cache :as controllers]
             [cues.deps :as deps]
             [cues.error :as err]
-            [cues.util :as util]
+            [cues.util :as cutil]
             [qbits.tape.appender :as app]
             [qbits.tape.codec :as codec]
             [qbits.tape.queue :as queue]
@@ -44,7 +46,7 @@
 
 (defn- queue-any?
   [x]
-  (if (util/collection? x)
+  (if (or (sequential? x) (set? x))
     (every? queue? x)
     (queue? x)))
 
@@ -460,7 +462,7 @@
       (let [m (->> (vals in)
                    (map :q/meta)
                    (apply util/merge-deep))]
-        (util/map-vals
+        (cutil/map-vals
          (fn [v]
            (when v (assoc v :q/meta m)))
          out))
@@ -723,23 +725,23 @@
 (s/def ::id-many-1
   (s/coll-of ::id
              :distinct true
-             :kind util/collection?
+             :kind #(or (sequential? %) (set? %))
              :count 1))
 
 (s/def ::id-many
   (s/coll-of ::id
              :distinct true
-             :kind util/collection?
+             :kind #(or (sequential? %) (set? %))
              :min-count 2))
 
 (s/def :one/in
-  (util/conform-to
+  (s*/conform-to
     (s/or :one    ::id
           :many-1 ::id-many-1)
     coerce-cardinality-impl))
 
 (s/def :any/in
-  (util/conform-to
+  (s*/conform-to
     (s/or :one    ::id
           :many   ::id-many
           :many-1 ::id-many-1)
@@ -777,7 +779,7 @@
 
 (defn- parse-processor-impl
   [process]
-  (let [[t p] (util/parse ::processor-impl process)]
+  (let [[t p] (s*/parse ::processor-impl process)]
     (-> p
         (assoc :type t)
         (assoc :tid (:id p)))))
@@ -825,7 +827,7 @@
   (->> processors
        (map (partial build-processor g))
        (map (juxt :id identity))
-       (update g :processors util/into-once)))
+       (update g :processors cutil/into-once)))
 
 (defn- collate-queues
   [{:keys [in out appenders tailers]}]
@@ -849,7 +851,7 @@
        (distinct)
        (keep (partial build-queue g))
        (map (juxt :id identity))
-       (update g :queues util/into-once)))
+       (update g :queues cutil/into-once)))
 
 (defn- queue-ids
   [x]
@@ -933,12 +935,12 @@
 
 (defn start-graph!
   [graph]
-  (->> (partial util/map-vals start-processor!)
+  (->> (partial cutil/map-vals start-processor!)
        (update graph :processors)))
 
 (defn stop-graph!
   [graph]
-  (->> (partial util/map-vals stop-processor!)
+  (->> (partial cutil/map-vals stop-processor!)
        (update graph :processors)))
 
 (defn close-graph!
@@ -1010,7 +1012,7 @@
     :many form))
 
 (s/def ::types
-  (util/conform-to
+  (s*/conform-to
     (s/or :one  ::id
           :many (s/coll-of ::id))
     coerce-cardinality))
@@ -1114,9 +1116,9 @@
 (defn- processor->fn
   [{:keys [id in out tailers appenders]
     :as   parsed}]
-  (let [rev       (util/reverse-map in)
-        t         (util/reverse-map tailers)
-        a         (util/reverse-map appenders)
+  (let [rev       (set/map-invert in)
+        t         (set/map-invert tailers)
+        a         (set/map-invert appenders)
         filter-fn (msg-filter-fn parsed)]
     (-> parsed
         (get-handler)
@@ -1127,7 +1129,7 @@
 
 (defn- parse-processor
   [process]
-  (let [[t parsed]          (util/parse ::processor process)
+  (let [[t parsed]          (s*/parse ::processor process)
         {:keys [id
                 in
                 out
@@ -1135,7 +1137,7 @@
                 opts
                 tailers
                 appenders]} parsed]
-    (util/some-entries
+    (cutil/some-entries
      (case t
        ::processor {:id        id
                     :in        (vals in)
@@ -1191,10 +1193,10 @@
      :as   queue} force]
    {:pre [(queue? queue)]}
    (let [p (queue-path queue)]
-     (when (or force (util/prompt-delete-data! p))
+     (when (or force (cutil/prompt-delete-data! p))
        (close! queue)
        (controllers/purge-controller id)
-       (util/delete-file (io/file p))))))
+       (cutil/delete-file (io/file p))))))
 
 (defn delete-graph-queues!
   [g]
@@ -1208,9 +1210,9 @@
   ([]
    (delete-all-queues! queue-path-default))
   ([queue-path]
-   (when (util/prompt-delete-data! queue-path)
+   (when (cutil/prompt-delete-data! queue-path)
      (reset! controllers/cache {})
-     (util/delete-file (io/file queue-path)))))
+     (cutil/delete-file (io/file queue-path)))))
 
 (defn unused-queue-files
   [queue]

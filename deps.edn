@@ -2,9 +2,10 @@
            com.stuartsierra/dependency {:mvn/version "1.0.0"}
            com.taoensso/nippy          {:mvn/version "3.1.1"}
            expound/expound             {:mvn/version "0.8.10"}
+           io.zalky/cinch              {:mvn/version "0.1.1"}
+           io.zalky/tape               {:mvn/version "0.3.5-rc1" :exclusions [net.openhft/chronicle-analytics]}
            net.openhft/chronicle-queue {:mvn/version "5.22ea3" :exclusions [net.openhft/chronicle-analytics]}
-           org.clojure/clojure         {:mvn/version "1.10.3"}
-           io.zalky/tape               {:mvn/version "0.3.5-rc1" :exclusions [net.openhft/chronicle-analytics]}}
+           org.clojure/clojure         {:mvn/version "1.10.3"}}
  :paths   ["src"]
  :aliases {:repl   {:extra-paths ["build"]
                     :extra-deps  {cider/cider-nrepl             {:mvn/version "0.28.5"}

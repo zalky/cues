@@ -1,8 +1,9 @@
 (ns cues.deps
-  (:require [clojure.set :as set]
+  (:require [cinch.core :as util]
+            [cinch.spec :as s*]
+            [clojure.set :as set]
             [clojure.spec.alpha :as s]
-            [com.stuartsierra.dependency :as dep]
-            [cues.util :as util]))
+            [com.stuartsierra.dependency :as dep]))
 
 (s/def ::steps
   (s/or :dag   ::dag
@@ -11,7 +12,7 @@
         :step  qualified-keyword?))
 
 (s/def ::set-of-steps
-  (util/conform-to
+  (s*/conform-to
     (s/coll-of (s/nilable ::steps) :kind set?)
     (partial remove nil?)))
 
@@ -19,7 +20,7 @@
   (s/map-of ::steps ::steps :conform-keys true))
 
 (s/def ::pipeline
-  (util/conform-to
+  (s*/conform-to
     (s/coll-of (s/nilable ::steps) :kind vector?)
     (partial remove nil?)))
 
@@ -169,7 +170,7 @@
 
 (defn graph
   [expr]
-  (graph* (util/parse ::steps expr)))
+  (graph* (s*/parse ::steps expr)))
 
 (defn transitive-dependencies+
   [graph node]

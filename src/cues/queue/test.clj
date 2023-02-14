@@ -1,6 +1,6 @@
 (ns cues.queue.test
-  (:require [cues.queue :as q]
-            [cues.util :as util]
+  (:require [cinch.core :as util]
+            [cues.queue :as q]
             [taoensso.timbre :as log]))
 
 (defn with-warn
