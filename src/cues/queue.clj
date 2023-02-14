@@ -555,6 +555,11 @@
       (assoc :error-fn (get-error-fn process))
       (update :fn wrap-processor-fn)))
 
+(defn- close-tailers
+  [{:keys [tailers]}]
+  (doseq [t tailers]
+    (close-tailer! t)))
+
 (defn- processor-loop*
   [{:keys [run-fn error-fn]
     :or   {run-fn run-fn!!}
@@ -565,7 +570,8 @@
       (try
         (processor-write p (run-fn p))
         (catch Throwable e
-          (error-fn p e))))))
+          (error-fn p e)))))
+  (close-tailers process))
 
 (def ^:private processor-loop
   (comp processor-loop* wrap-error-handling))
