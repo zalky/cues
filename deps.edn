@@ -7,26 +7,35 @@
            net.openhft/chronicle-queue {:mvn/version "5.22ea3" :exclusions [net.openhft/chronicle-analytics]}
            org.clojure/clojure         {:mvn/version "1.10.3"}}
  :paths   ["src"]
- :aliases {:repl   {:extra-paths ["build"]
-                    :extra-deps  {cider/cider-nrepl             {:mvn/version "0.28.5"}
-                                  criterium/criterium           {:mvn/version "0.4.4"}
-                                  io.zalky/runway               {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}
-                                  nrepl/nrepl                   {:mvn/version "0.8.3"}
-                                  refactor-nrepl/refactor-nrepl {:mvn/version "2.5.1"}}
-                    :exec-fn     runway.core/exec
-                    :exec-args   {runway.core/watcher {}
-                                  runway.nrepl/server {}
-                                  cues.dev            true}}
-           :test   {:extra-paths ["test"]
-                    :extra-deps  {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
-                                                             :sha     "705ad25bbf0228b1c38d0244a36001c2987d7337"}}
-                    :jvm-opts    ["-Dprofile=test"]
-                    :main-opts   ["-m" "cognitect.test-runner"]}
-           :server {:extra-paths ["build"]
-                    :extra-deps  {io.zalky/runway {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}}
-                    :exec-fn     runway.core/exec
-                    :exec-args   {runway.core/go {:system cues.build/test-system}}
-                    :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]}
-           :build  {:deps       {io.zalky/build-clj {:git/url "https://github.com/zalky/build-clj.git"
-                                                     :git/sha "c8782e887381160f6d34d48425dc2d3a2a40f4cb"}}
-                    :ns-default io.zalky.build}}}
+ :aliases {:repl     {:extra-paths ["build"]
+                      :extra-deps  {cider/cider-nrepl             {:mvn/version "0.28.5"}
+                                    criterium/criterium           {:mvn/version "0.4.4"}
+                                    io.zalky/runway               {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}
+                                    nrepl/nrepl                   {:mvn/version "0.8.3"}
+                                    refactor-nrepl/refactor-nrepl {:mvn/version "2.5.1"}}
+                      :exec-fn     runway.core/exec
+                      :exec-args   {runway.core/watcher {}
+                                    runway.nrepl/server {}
+                                    cues.dev            true}}
+           :test     {:extra-paths ["test"]
+                      :extra-deps  {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                                                               :sha     "705ad25bbf0228b1c38d0244a36001c2987d7337"}}
+                      :jvm-opts    ["-Dprofile=test"]
+                      :main-opts   ["-m" "cognitect.test-runner"]}
+           :server   {:extra-paths ["build"]
+                      :extra-deps  {io.zalky/runway {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}}
+                      :exec-fn     runway.core/exec
+                      :exec-args   {runway.core/go {:system cues.build/test-system}}
+                      :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]}
+           :cues/j17 {:jvm-opts ["--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED"
+                                 "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"
+                                 "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED"
+                                 "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"
+                                 "--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED"
+                                 "--add-opens=java.base/java.lang=ALL-UNNAMED"
+                                 "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+                                 "--add-opens=java.base/java.io=ALL-UNNAMED"
+                                 "--add-opens=java.base/java.util=ALL-UNNAMED"]}
+           :build    {:deps       {io.zalky/build-clj {:git/url "https://github.com/zalky/build-clj.git"
+                                                       :git/sha "c8782e887381160f6d34d48425dc2d3a2a40f4cb"}}
+                      :ns-default io.zalky.build}}}
