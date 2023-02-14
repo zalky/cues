@@ -83,7 +83,7 @@
 
 (t/deftest graph-test-system
   (let [done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id ::sink-system
@@ -98,7 +98,7 @@
 
 (t/deftest graph-test-source-sink
   (let [done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id ::sink-source
@@ -117,7 +117,7 @@
 
 (t/deftest graph-test-pipe
   (let [done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id  ::pipe
@@ -151,7 +151,7 @@
         d2   (promise)
         d3   (promise)
         done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -201,7 +201,7 @@
 
 (t/deftest graph-test-imperative
   (let [done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id        ::pipe
@@ -234,7 +234,7 @@
 
 (t/deftest graph-test-join
   (let [done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -271,7 +271,7 @@
 (t/deftest graph-test-join-fork
   (let [q3-done (promise)
         q4-done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -320,7 +320,7 @@
 (t/deftest graph-test-join-fork-conditional
   (let [q3-done (promise)
         q4-done (promise)]
-    (qt/with-graph-and-delete
+    (qt/with-graph-impl-and-delete
       [g {:processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
@@ -365,7 +365,7 @@
   ;; Suppress exception logging, just testing messaging
   (log/with-level :fatal
     (let [done (promise)]
-      (qt/with-graph-and-delete
+      (qt/with-graph-impl-and-delete
         [g {:processors [{:id  ::source
                           :out ::q1}
                          {:id  ::pipe-error
@@ -412,6 +412,153 @@
                             {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}
                                                      ::q2 {:q/t 2}}}}]}))))))
 
+(t/deftest filter-messages-test
+  (let [msg {::q {:q/topics {::t1 ::message
+                             ::t2 ::message}}}]
+    (is (= (#'q/topics-filter nil nil)))
+    (is (= (#'q/topics-filter nil {})))
+    (is (= (#'q/topics-filter [] nil)))
+    (is (= (#'q/topics-filter [::t1 ::t2] msg)
+           msg))
+    (is (= (#'q/topics-filter [::t1] msg)
+           {::q {:q/topics {::t1 ::message}}}))
+    (is (= (#'q/topics-filter [::other] msg)
+           nil))
+    (is (= (#'q/topics-filter [::t1 ::t2]
+                              {::q1 {:q/topics {::t1 ::message
+                                                ::t2 ::message}}
+                               ::q2 {:q/topics {::t1 ::message
+                                                ::t2 ::message}}})
+           {::q1 {:q/topics {::t1 ::message
+                             ::t2 ::message}}
+            ::q2 {:q/topics {::t1 ::message
+                             ::t2 ::message}}}))
+    (is (= (#'q/topics-filter [::t1]
+                              {::q1 {:q/topics {::t1 ::message
+                                                ::t2 ::message}}
+                               ::q2 {:q/topics {::t1 ::message
+                                                ::t2 ::message}}})
+           {::q1 {:q/topics {::t1 ::message}}
+            ::q2 {:q/topics {::t1 ::message}}}))
+    (is (= (#'q/topics-filter [::t2]
+                              {::q1 {:q/topics {::t2 ::message}}
+                               ::q2 {:q/topics {::t1 ::message}}})
+           {::q1 {:q/topics {::t2 ::message}}}))
+    (is (= (#'q/topics-filter [::t1]
+                              {::q1 {:q/topics {::t2 ::message}}
+                               ::q2 {:q/topics {::t1 ::message}}})
+           {::q2 {:q/topics {::t1 ::message}}}))
+    (is (= (#'q/topics-filter [::t2]
+                              {::q1 {:q/topics {::t1 ::message}}
+                               ::q2 {:q/topics {::t1 ::message}}})))))
+
+(defmethod q/processor ::processor-a
+  [{:keys [system]} {msg :in}]
+  {:out (assoc msg
+               :processed true
+               :system system)})
+
+(t/deftest processor-fn-test
+  (let [config  {:id     ::processor-a
+                 :topics [::doc]
+                 :in     {:in         ::q1
+                          :in-ignored ::q2}
+                 :out    {:out ::tx}}
+        f       (#'q/processor->fn config)
+        process {:config config
+                 :system {:component true}}]
+    (is (fn? f))
+    (is (nil? (f process nil)))
+    (is (nil? (f process {})))
+    (is (nil? (f process {::q-other {}})))
+    (is (nil? (f process {::q-other {:q/topics {}}})))
+    (is (nil? (f process {::q-other {:q/topics {::other ::message}}})))
+    (is (nil? (f process {::q1 {:q/topics {::other ::message}}})))
+    (is (= (f process {::q1 {:q/topics {::doc ::message}}})
+           {::tx {:q/topics  {::doc ::message}
+                  :processed true
+                  :system    {:component true}}}))))
+
+(defn- process-b
+  [doc]
+  (assoc doc ::processed true))
+
+(defmethod q/processor ::processor-b
+  [_ {msg :in
+      _   :in-ignored}]
+  {:out (->> process-b
+             (partial cutil/map-vals)
+             (update msg :q/topics))})
+
+(defmethod q/processor ::doc-store
+  [{{db   :db
+     done :done} :opts}
+   {{{{id  :system/uuid
+       :as doc} ::doc} :q/topics
+     :as               msg} :in}]
+  (swap! db update id merge doc)
+   (deliver done true))
+
+(defn message
+  [topics]
+  {:q/type   :q.type.tx/command
+   :q/topics topics})
+
+(t/deftest graph-test
+  (let [done (promise)
+        db   (atom {})]
+    (qt/with-graph-and-delete
+      [g {:queue-opts {::tx {:queue-meta #{:q/t :tx/t}}}
+          :processors [{:id ::s1}
+                       {:id ::s2}
+                       {:id    ::processor-b
+                        :types :q.type.tx/command
+                        :in    {:in         ::s1
+                                :in-ignored ::s2}
+                        :out   {:out ::tx}}
+                       {:id     ::doc-store
+                        :topics ::doc
+                        :in     {:in ::tx}
+                        :opts   {:db   db
+                                 :done done}}]}]
+      (q/send! g ::s1 (message {::other {:system/uuid 1 :text "no dice"}}))
+      (q/send! g ::s2 (message {::other {:system/uuid 2 :text "no dice"}}))
+      (q/send! g ::s1 (message {::doc {:system/uuid 3 :text "text"}}))
+      (q/send! g ::s2 (message {::other {:system/uuid 4 :text "no dice"}}))
+      (is (done? done))
+      (is (= @db
+             {3 {:system/uuid 3
+                 ::processed  true
+                 :text        "text"}}))
+      (is (= (q/all-graph-messages g)
+             {::qt/error []
+              ::s1       [{:q/type   :q.type.tx/command
+                           :q/topics {::other {:system/uuid 1 :text "no dice"}}
+                           :q/meta   {:q/queue {::s1 {:q/t 1}}}}
+                          {:q/type   :q.type.tx/command
+                           :q/topics {::doc {:system/uuid 3 :text "text"}}
+                           :q/meta   {:q/queue {::s1 {:q/t 2}}}}]
+              ::s2       [{:q/type   :q.type.tx/command
+                           :q/topics {::other {:system/uuid 2 :text "no dice"}}
+                           :q/meta   {:q/queue {::s2 {:q/t 1}}}}
+                          {:q/type   :q.type.tx/command
+                           :q/topics {::other {:system/uuid 4 :text "no dice"}}
+                           :q/meta   {:q/queue {::s2 {:q/t 2}}}}]
+              ::tx       [{:q/type   :q.type.tx/command
+                           :q/topics {::other {:system/uuid 1 :text "no dice"
+                                               ::processed  true}}
+                           :q/meta   {:q/queue {::s1 {:q/t 1}
+                                                ::s2 {:q/t 1}
+                                                ::tx {:q/t 1}}
+                                      :tx/t    1}}
+                          {:q/type   :q.type.tx/command
+                           :q/topics {::doc {:system/uuid 3 :text "text"
+                                             ::processed  true}}
+                           :q/meta   {:q/queue {::s1 {:q/t 2}
+                                                ::s2 {:q/t 2}
+                                                ::tx {:q/t 2}}
+                                      :tx/t    2}}]})))))
+
 (defn p-counter
   [p n]
   (let [c (atom 0)]
@@ -429,7 +576,7 @@
      (let [q3-done (promise)
            q4-done (promise)
            timeout (max (/ n 10) 1000)]
-       (qt/with-graph-and-delete
+       (qt/with-graph-impl-and-delete
          [g {:processors [{:id  ::s1
                            :out ::q1}
                           {:id  ::s2

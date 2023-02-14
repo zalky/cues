@@ -49,7 +49,7 @@
   (doseq [q (vals (:queues g))]
     (q/delete-queue! q true)))
 
-(defmacro with-graph-and-delete
+(defmacro with-graph-impl-and-delete
   [[sym :as binding] & body]
   `(let ~binding
      (let [~sym (-> ~sym
@@ -64,6 +64,13 @@
                (q/stop-graph!)
                (q/close-graph!)
                (delete-graph-queues!)))))))
+
+(defmacro with-graph-and-delete
+  [[sym config] & body]
+  `(let ~[sym config]
+     (with-graph-impl-and-delete
+       [~sym (q/parse-graph ~sym)]
+       ~@body)))
 
 (defn simplify-exceptions
   [messages]
