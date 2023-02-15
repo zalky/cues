@@ -455,17 +455,24 @@
   [config]
   (get-in config [:queue-opts :queue-meta] true))
 
+(defn- assoc-meta-out
+  [out m]
+  (reduce-kv
+   (fn [out k v]
+     (cond-> out
+       v (assoc k (assoc v :q/meta m))))
+   {}
+   out))
+
 (defn- merge-meta
   [in out config]
   (when out
     (if (merge-meta? config)
-      (let [m (->> (vals in)
-                   (map :q/meta)
-                   (apply util/merge-deep))]
-        (cutil/map-vals
-         (fn [v]
-           (when v (assoc v :q/meta m)))
-         out))
+      (if-let [m (->> (vals in)
+                      (keep :q/meta)
+                      (apply util/merge-deep))]
+        (assoc-meta-out out m)
+        out)
       out)))
 
 (defn- get-result
