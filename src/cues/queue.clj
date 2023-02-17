@@ -18,6 +18,7 @@
             [taoensso.timbre :as log])
   (:import clojure.lang.IRef
            java.io.File
+           java.lang.InterruptedException
            java.nio.ByteBuffer
            java.time.Instant
            java.util.stream.Collectors
@@ -559,7 +560,7 @@
 (defn- wrap-error-handling
   [process]
   (-> process
-      (assoc :error-fn (get-error-fn process))
+      (util/assoc-nil :error-fn (get-error-fn process))
       (update :fn wrap-processor-fn)))
 
 (defn- close-tailers
@@ -567,17 +568,25 @@
   (doseq [t tailers]
     (close-tailer! t)))
 
-(defn- processor-loop*
+(defn- processor-step
   [{:keys [run-fn error-fn]
     :or   {run-fn run-fn!!}
     :as   process}]
   {:pre [error-fn run-fn]}
-  (while (running? process)
-    (let [p (snapshot process)]
-      (try
-        (processor-write p (run-fn p))
-        (catch Throwable e
-          (error-fn p e)))))
+  (let [p (snapshot process)]
+    (try
+      (processor-write p (run-fn p)) true
+      (catch InterruptedException e
+        (recover p) false)
+      (catch Throwable e
+        (error-fn p e) true))))
+
+(defn- processor-loop*
+  [process]
+  (loop []
+    (when (running? process)
+      (when (processor-step process)
+        (recur))))
   (close-tailers process))
 
 (def ^:private processor-loop
