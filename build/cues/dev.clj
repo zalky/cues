@@ -2,7 +2,9 @@
 
 (in-ns 'user)
 
-(require '[cues.build :as build]
+(require '[clojure.java.io :as io]
+         '[criterium.core :as b]
+         '[cues.build :as build]
          '[cues.deps :as deps]
          '[cues.repl :as repl]
          '[cues.queue :as q]
