@@ -23,6 +23,7 @@ not provide blocking or persistent tailers.
 2. Processors for consuming and producing messages
 3. Graphs for connecting processors together via queues
 4. Error handling and message metadata
+5. Zero-configuration defaults
 
 By themselves, the blocking queues are similar to what durable-queue
 provides, just one or more orders of magnitude faster. They also come

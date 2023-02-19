@@ -619,7 +619,7 @@
              :appender (appender out)
              :tailers  (join-tailers process unblock))))])
 
-(defn- fork-run!!
+(defn- fork-run-fn!!
   "Conditionally passes message from the join backing queue onto to the
   fork output queue, iff a message for the output queue exists in the
   map. Note the processor will only ever have one input queue (the
@@ -643,7 +643,7 @@
      (for [{id :id :as o} out]
        (-> process
            (assoc :tid    id
-                  :run-fn fork-run!!
+                  :run-fn fork-run-fn!!
                   :in     backing-queue
                   :out    o)
            (join unblock)))))))
