@@ -10,4 +10,4 @@ url             = https://github.com/zalky/cues
 include make-clj/Makefile
 
 test:
-	@make test-super
+	clojure -M:test:cues/j17
