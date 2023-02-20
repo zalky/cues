@@ -88,11 +88,14 @@
   (keyword (namespace id)
            (str (name id) suffix)))
 
-(defn- tailer-id
-  [{queue-id :id} id]
-  (when (and queue-id id)
-    (->> (str "tailer" queue-id id)
-         (keyword (namespace ::_)))))
+(defn- combined-id
+  [id1 id2]
+  (when (and id1 id2)
+    (letfn [(combine [id]
+              (str (namespace id) "."
+                   (name id)))]
+      (keyword (combine id1)
+               (combine id2)))))
 
 (declare last-index)
 
@@ -168,7 +171,7 @@
   ([queue id] (tailer queue id nil))
   ([queue id unblock]
    {:pre [(queue? queue)]}
-   (let [tid  (tailer-id queue id)
+   (let [tid  (combined-id (:id queue) id)
          opts {:id (some-> tid id->str)}
          t    (tail/make (:queue-impl queue) opts)]
      (prime-tailer
@@ -446,12 +449,6 @@
      (when (pred? tailer)
        (to-index tailer i)))))
 
-(defn- log-processor-error
-  [{{:keys [id in out]
-     :or   {in  "source"
-            out "sink"}} :config} e]
-  (log/error e (format "%s (%s -> %s)" id in out)))
-
 (defn- merge-meta?
   [config]
   (get-in config [:queue-opts :queue-meta] true))
@@ -532,7 +529,14 @@
 (defn- processor-write
   [{:keys [appender]} msg]
   (when (and appender msg)
-    (write appender msg)))
+    (write appender msg))
+  true)
+
+(defn- log-processor-error
+  [{{:keys [id in out]
+     :or   {in  "source"
+            out "sink"}} :config} e]
+  (log/error e (format "%s (%s -> %s)" id in out)))
 
 (defn- get-error-fn
   [{:keys [error-queue]}]
@@ -573,13 +577,12 @@
     :or   {run-fn run-fn!!}
     :as   process}]
   {:pre [error-fn run-fn]}
-  (let [p (snapshot process)]
-    (try
-      (processor-write p (run-fn p)) true
-      (catch InterruptedException e
-        (recover p) false)
-      (catch Throwable e
-        (error-fn p e) true))))
+  (try
+    (let [p (snapshot process)]
+      (processor-write p (run-fn p)))
+    (catch InterruptedException e false)
+    (catch Throwable e
+      (error-fn process e) true)))
 
 (defn- processor-loop*
   [process]
@@ -606,18 +609,33 @@
            (map appender)
            (doall)))
 
-(defn- join
+(defn- backing-queue
+  [{:keys [id config]}]
+  (let [p (-> config
+              (:queue-opts)
+              (:queue-path))]
+    (queue id {:transient  true
+               :queue-path p})))
+
+(defn- start-impl
+  [process unblock futures-fn]
+  (let [q (backing-queue process)]
+    {:try-queues [q]
+     :futures    (futures-fn process unblock q)}))
+
+(defn- start-join
   "Reads messages from a seq of input tailers, applies a processor fn,
   and writes the reuslt to a single output appender. While queues can
   be shared across threads, appenders and tailers cannot. They must be
   created in the thread they are meant to be used in to avoid errors."
-  [{:keys [out] :as process} unblock]
+  [{:keys [out] :as process} unblock try-queue]
   [(future
      (processor-loop
       (assoc process
-             :unblock  unblock
-             :appender (appender out)
-             :tailers  (join-tailers process unblock))))])
+             :unblock   unblock
+             :try-queue try-queue
+             :appender  (appender out)
+             :tailers   (join-tailers process unblock))))])
 
 (defn- fork-run-fn!!
   "Conditionally passes message from the join backing queue onto to the
@@ -631,22 +649,30 @@
     (get msg out-id)
     (recover process)))
 
-(defn- join-fork
-  [{:keys [in out] :as process} unblock backing-queue]
-  (doall
-   (flatten
-    (cons
-     (-> process
-         (assoc :out       backing-queue
-                :result-fn (fn [_ r] r))
-         (join unblock))
-     (for [{id :id :as o} out]
-       (-> process
-           (assoc :tid    id
-                  :run-fn fork-run-fn!!
-                  :in     backing-queue
-                  :out    o)
-           (join unblock)))))))
+(defn- start-jf-join
+  [{:keys [id] :as process} unblock fork-queue]
+  (-> process
+      (assoc :id        id
+             :out       fork-queue
+             :result-fn (fn [_ r] r))
+      (start-impl unblock start-join)))
+
+(defn- start-jf-fork
+  [{:keys [id out] :as process} unblock fork-queue]
+  (for [{oid :id :as o} out]
+    (-> process
+        (assoc :id     (combined-id id oid)
+               :run-fn fork-run-fn!!
+               :in     fork-queue
+               :out    o
+               :tid    oid)
+        (start-impl unblock start-join))))
+
+(defn- start-join-fork
+  [process unblock fork-queue]
+  (let [j (start-jf-join process unblock fork-queue)
+        f (start-jf-fork process unblock fork-queue)]
+   (apply merge-with concat j f)))
 
 (defn- zip
   [xs]
@@ -663,7 +689,7 @@
     {:tailers   (zip (join-tailers p unblock))
      :appenders (zip (fork-appenders p))}))
 
-(defn- imperative
+(defn- start-imperative
   [{:keys [out] :as process} unblock]
   [(future
      (processor-loop
@@ -673,13 +699,14 @@
              :appender   (when out (appender out))
              :imperative (imp-tailers process unblock))))])
 
-(defn- sink
-  [process unblock]
+(defn- start-sink
+  [process unblock try-queue]
   [(future
      (processor-loop
       (assoc process
-             :unblock unblock
-             :tailers (join-tailers process unblock))))])
+             :unblock   unblock
+             :try-queue try-queue
+             :tailers   (join-tailers process unblock))))])
 
 (derive ::source     ::appender)
 (derive ::source     ::processor)
@@ -703,37 +730,33 @@
 (defmethod start-processor-impl ::sink
   [{:keys [id] :as process}]
   (let [unblock (atom nil)]
-    (assoc process
-           :unblock unblock
-           :futures (sink process unblock))))
+    (-> process
+        (merge (start-impl process unblock start-sink))
+        (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::join
   [{:keys [id] :as process}]
   (let [unblock (atom nil)]
-    (assoc process
-           :unblock unblock
-           :futures (join process unblock))))
+    (-> process
+        (merge (start-impl process unblock start-join))
+        (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::join-fork
   ;; Guarantees idempotency via backing queue.
-  [{:keys [id config] :as process}]
+  [process]
   (let [unblock (atom nil)
-        p       (-> config
-                    :queue-opts
-                    :queue-path)
-        q       (queue id {:transient  true
-                           :queue-path p})]
-    (assoc process
-           :unblock unblock
-           :futures (join-fork process unblock q)
-           :backing-queue q)))
+        q       (backing-queue process)]
+    (-> process
+        (merge (start-join-fork process unblock q))
+        (assoc :unblock unblock
+               :fork-queue q))))
 
 (defmethod start-processor-impl ::imperative
   [{:keys [id] :as process}]
   (let [unblock (atom nil)]
     (assoc process
            :unblock unblock
-           :futures (imperative process unblock))))
+           :futures (start-imperative process unblock))))
 
 (defn coerce-cardinality-impl
   [[t form]]
@@ -969,7 +992,7 @@
   [{:keys [processors queues]
     :as   graph}]
   (->> (vals processors)
-       (keep :backing-queue)
+       (keep :fork-queue)
        (map close!)
        (dorun))
   (->> (vals queues)
