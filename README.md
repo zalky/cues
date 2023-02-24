@@ -85,6 +85,9 @@ Just add the following dependency in your `deps.edn`:
 io.zalky/cues {:mvn/version "0.2.0"}
 ```
 
+Also see the additional notes on running ChronicleQueue on [Java 11 &
+17](#java).
+
 ## Quick Start <a name="quick-start"></a>
 
 It is really easy to get started with queue primitives:
@@ -247,9 +250,9 @@ the REPL:
 
 ```clj
 (def f (future
-        (let [t (q/tailer q)]
-          (while true
-            (let [msg (q/read!! t)]
+         (let [t (q/tailer q)]
+           (while true
+             (let [msg (q/read!! t)]
                ;; blocks until there is something to read
                (println "message:" (:x msg)))))))
 ;; prints
