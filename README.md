@@ -437,7 +437,7 @@ tailer, or:
 (q/with-tailer [tailer queue]
   ...)
 ```
-Here, if you provide a queue, you get bound tailer that will be closed
+Here, if you provide a queue, you get a bound `tailer` that will be closed
 when the block exits scope.
 
 ## Processors and Graphs <a name="processors-graphs"></a>
@@ -815,9 +815,9 @@ and rebinding processor catalogs:
 {:processors (-> (util/merge-catalogs cqrs/base-catalog
                                       features-a-catalog
                                       features-b-catalog)
-                 (util/bind-catalog {::my-other-error-id ::new-error-id
-                                     ::features/tx-id    ::new-tx-id
-                                     ::features/undo-id  ::new-undo-id}))}
+                 (util/bind-catalog {::my-old-error-queue  ::new-error-queue
+                                     ::features/tx-queue   ::new-tx-queue
+                                     ::features/undo-queue ::new-undo-queue}))}
 ```
 
 ### Errors <a name="errors"></a>
@@ -1068,17 +1068,18 @@ There are also functions that will process messages eagerly:
 (q/all-graph-messages graph)
 ```
 
-There are also a set of functions for managing queue files:
+There are also a set of functions for managing queue files. By default
+they will prompt you to confirm:
 
 ```clj
 ;; Close and delete the queue's data files
 (q/delete-queue! queue)
 
 ;; Close and delete all queues in a graph
-(q/delete-graph-queues!)
+(q/delete-graph-queues! g)
 
-;; Delete all queues! Either in default queue path, or in the path
-;; provided
+;; Delete all queues in default queue path, or in the path
+;; provided.
 (q/delete-all-queues!)
 (q/delete-all-queues "data/example")
 ```

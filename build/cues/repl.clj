@@ -39,6 +39,6 @@
   (let [g (graph)]
     (stop!)
     (log/info "Deleting system graph and restarting...")
-    (q/delete-graph-queues! g)
+    (q/delete-graph-queues! g true)
     (start!))
   nil)

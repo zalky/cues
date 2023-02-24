@@ -1223,7 +1223,9 @@
 ;; Utility
 
 (defn delete-queue!
-  "Caution: failing to purge the queue controller when deleting a queue
+  "Deletes the queue data on disk, prompting by default.
+
+  Caution: failing to purge the queue controller when deleting a queue
   will cause blocking to break the next time the queue is made."
   ([queue]
    (delete-queue! queue false))
@@ -1237,13 +1239,22 @@
        (cutil/delete-file (io/file p))))))
 
 (defn delete-graph-queues!
-  [g]
-  (stop-graph! g)
-  (doseq [q (vals (:queues g))]
-    (delete-queue! q true)))
+  "Stops the graph, and closes and deletes all queue data."
+  ([g]
+   (delete-graph-queues! g false))
+  ([g force]
+   (let [queues (vals (:queues g))]
+     (when (or force (-> (count queues)
+                         (str " queues")
+                         (cutil/prompt-delete-data!)))
+       (stop-graph! g)
+       (doseq [q queues]
+         (delete-queue! q true))))))
 
 (defn delete-all-queues!
-  "Caution: failing to purge the queue controller when deleting a queue
+  "Deletes all queue data at either the provided or default path.
+
+  Caution: failing to purge the queue controller when deleting a queue
   will cause blocking to break the next time the queue is made."
   ([]
    (delete-all-queues! queue-path-default))
