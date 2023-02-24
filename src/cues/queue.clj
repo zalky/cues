@@ -245,20 +245,13 @@
   [tailer]
   {:pre [(tailer? tailer)]}
   (let [^StoreTailer t (->> tailer
-                            :tailer-impl
-                            tail/tailer)]
+                            (:tailer-impl)
+                            (tail/tailer))]
     (.lastReadIndex t)))
 
 (def ^:dynamic last-read-index
   "Only rebind for testing!"
   last-read-index*)
-
-(defn to-last-read
-  [tailer]
-  (->> tailer
-       (last-read-index)
-       (to-index tailer))
-  nil)
 
 (defn- materialize-meta
   [id tailer {m :q/meta :as msg}]
@@ -618,10 +611,10 @@
                :queue-path p})))
 
 (defn- start-impl
-  [process unblock futures-fn]
+  [process unblock start-fn]
   (let [q (backing-queue process)]
     {:try-queues [q]
-     :futures    (futures-fn process unblock q)}))
+     :futures    (start-fn process unblock q)}))
 
 (defn- start-join
   "Reads messages from a seq of input tailers, applies a processor fn,
@@ -669,10 +662,12 @@
         (start-impl unblock start-join))))
 
 (defn- start-join-fork
-  [process unblock fork-queue]
-  (let [j (start-jf-join process unblock fork-queue)
-        f (start-jf-fork process unblock fork-queue)]
-   (apply merge-with concat j f)))
+  [process unblock]
+  (let [q (backing-queue process)
+        j (start-jf-join process unblock q)
+        f (start-jf-fork process unblock q)]
+    (-> (apply merge-with concat j f)
+        (assoc :fork-queue q))))
 
 (defn- zip
   [xs]
@@ -742,14 +737,12 @@
         (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::join-fork
-  ;; Guarantees idempotency via backing queue.
+  ;; Backing queue used to guarantee delivery.
   [process]
-  (let [unblock (atom nil)
-        q       (backing-queue process)]
+  (let [unblock (atom nil)]
     (-> process
-        (merge (start-join-fork process unblock q))
-        (assoc :unblock unblock
-               :fork-queue q))))
+        (merge (start-join-fork process unblock))
+        (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::imperative
   [{:keys [id] :as process}]

@@ -605,9 +605,9 @@
                          (cutil/map-vals (comp count q/all-messages)))})))))
 
 (comment
-  ;; This measure a single round-trip read + write, with blocking. The
-  ;; messages being serialized on these queues are generally between
-  ;; 114-117 Bytes in size.
+  ;; This measures a single round-trip read + write, with
+  ;; blocking. The messages being serialized on these queues are
+  ;; generally between 114-117 Bytes in size.
 
   (b/quick-bench
    (q/write a {:x 1}))
