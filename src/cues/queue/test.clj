@@ -38,9 +38,10 @@
   "The order that messages are placed on outbound fork queues is
   non-deterministic, therefore we can't test timestamps here."
   [f]
-  (binding [q/last-read-index last-read-index-from-1
-            q/to-index        to-index-from-1
-            q/written-index   written-index-from-1]
+  (binding [q/last-read-index  last-read-index-from-1
+            q/to-index         to-index-from-1
+            q/written-index    written-index-from-1
+            q/add-attempt-hash (fn [_ msg] msg)]
     (f)))
 
 (defn delete-graph-queues!

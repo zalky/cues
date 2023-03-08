@@ -32,14 +32,14 @@
 
 (defrecord GraphExample []
   component/Lifecycle
-  (start [c]
+  (start [component]
     (->> (graph-spec db)
          (q/graph)
          (q/start-graph!)
-         (merge c)))
+         (merge component)))
 
-  (stop [c]
-    (->> c
+  (stop [component]
+    (->> component
          (q/stop-graph!)
          (q/close-graph!))
     (GraphExample.)))
