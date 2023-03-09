@@ -1518,6 +1518,7 @@
                          (str " queues")
                          (cutil/prompt-delete-data!)))
        (stop-graph! g)
+       (close-graph! g)
        (doseq [q queues]
          (delete-queue! q true))))))
 

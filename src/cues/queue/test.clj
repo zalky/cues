@@ -44,12 +44,6 @@
             q/add-attempt-hash (fn [_ msg] msg)]
     (f)))
 
-(defn delete-graph-queues!
-  "Careful with this function!"
-  [g]
-  (doseq [q (vals (:queues g))]
-    (q/delete-queue! q true)))
-
 (defmacro with-graph-impl-and-delete
   [[sym :as binding] & body]
   `(let ~binding
@@ -61,10 +55,7 @@
        (try
          ~@body
          (finally
-           (-> ~sym
-               (q/stop-graph!)
-               (q/close-graph!)
-               (delete-graph-queues!)))))))
+           (q/delete-graph-queues! ~sym true))))))
 
 (defmacro with-graph-and-delete
   [[sym config] & body]

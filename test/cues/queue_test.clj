@@ -12,7 +12,7 @@
   (t/join-fixtures
    [qt/with-deterministic-meta qt/with-warn]))
 
-(defn p-fn
+(defn processor-fn
   [{r-fn   :reduce-fn
     m-fn   :map-fn
     queues :to
@@ -121,9 +121,10 @@
       [g {:processors [{:id  ::source
                         :out ::q1}
                        {:id  ::pipe
-                        :fn  (p-fn {:reduce-fn +
-                                    :map-fn    inc
-                                    :to        [::q2]})
+                        :fn  (processor-fn
+                              {:reduce-fn +
+                               :map-fn    inc
+                               :to        [::q2]})
                         :in  ::q1
                         :out ::q2}
                        {:id ::sink-pipe
@@ -157,15 +158,16 @@
                        {:id  ::s2
                         :out ::q2}
                        {:id   ::alts
-                        :fn   (p-fn {:reduce-fn +
-                                     :map-fn    (fn [x]
-                                                  (case x
-                                                    1 (deliver d1 true)
-                                                    2 (deliver d2 true)
-                                                    3 (deliver d3 true)
-                                                    true)
-                                                  (inc x))
-                                     :to        [::q3]})
+                        :fn   (processor-fn
+                               {:reduce-fn +
+                                :map-fn    (fn [x]
+                                             (case x
+                                               1 (deliver d1 true)
+                                               2 (deliver d2 true)
+                                               3 (deliver d3 true)
+                                               true)
+                                             (inc x))
+                                :to        [::q3]})
                         :in   [::q1 ::q2]
                         :out  ::q3
                         :opts {:alts true}}
@@ -240,8 +242,9 @@
                        {:id  ::s2
                         :out ::q2}
                        {:id  ::join
-                        :fn  (p-fn {:reduce-fn +
-                                    :to        [::q3]})
+                        :fn  (processor-fn
+                              {:reduce-fn +
+                               :to        [::q3]})
                         :in  [::q1 ::q2]
                         :out ::q3}
                        {:id ::sink-join
@@ -277,8 +280,9 @@
                        {:id  ::s2
                         :out ::q2}
                        {:id  ::join-fork
-                        :fn  (p-fn {:reduce-fn +
-                                    :to        [::q3 ::q4]})
+                        :fn  (processor-fn
+                              {:reduce-fn +
+                               :to        [::q3 ::q4]})
                         :in  [::q1 ::q2]
                         :out [::q3 ::q4]}
                        {:id ::k1
@@ -497,7 +501,7 @@
        :as doc} ::doc} :q/topics
      :as               msg} :in}]
   (swap! db update id merge doc)
-   (deliver done true))
+  (deliver done true))
 
 (defn message
   [topics]
@@ -582,8 +586,9 @@
                           {:id  ::s2
                            :out ::q2}
                           {:id  ::join-fork
-                           :fn  (p-fn {:reduce-fn +
-                                       :to        [::q3 ::q4]})
+                           :fn  (processor-fn
+                                 {:reduce-fn +
+                                  :to        [::q3 ::q4]})
                            :in  [::q1 ::q2]
                            :out [::q3 ::q4]}
                           {:id ::k1
