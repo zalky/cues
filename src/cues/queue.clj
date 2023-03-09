@@ -182,6 +182,7 @@
        :id          tid
        :unblock     unblock
        :queue       queue
+       :dirty       (atom false)
        :tailer-impl t}))))
 
 (defn appender
@@ -195,11 +196,16 @@
   (comp queue/closed? :queue-impl))
 
 (defn set-direction
-  "Sets the direction of the tailer to either :forward or :backward."
+  "Sets the direction of the tailer to either :forward
+  or :backward. Note: after changing the direction on the tailer you
+  must do a read before you can measure the index again via
+  `cues.queue/index`. This is an artifact of ChronicleQueue
+  behaviour."
   [t dir]
   (-> t
       (:tailer-impl)
       (tail/set-direction! dir))
+  (reset! (:dirty t) true)
   t)
 
 (defn to-end
@@ -208,6 +214,7 @@
   (-> t
       (:tailer-impl)
       (tail/to-end!))
+  (reset! (:dirty t) false)
   t)
 
 (defn to-start
@@ -216,11 +223,23 @@
   (-> t
       (:tailer-impl)
       (tail/to-start!))
+  (reset! (:dirty t) false)
   t)
 
-(def index
-  "Gets the index at the tailer's current position."
-  (comp tail/index :tailer-impl))
+(defn index
+  "Gets the index at the tailer's current position. ChronicleQueue
+  tailers do not update their current index after changing direction
+  until AFTER the next read. Cues guards against this edge case by
+  throwing an error if you attempt to take the index before the next
+  read."
+  [t]
+  (if-not @(:dirty t)
+    (-> t
+        (:tailer-impl)
+        (tail/index))
+    (-> "Cannot take the index of a tailer after setting direction without first doing a read"
+        (ex-info t)
+        (throw))))
 
 (def queue-obj
   "Returns the underlying ChronicleQueue object."
@@ -250,6 +269,7 @@
   (if (zero? i)
     (tail/to-start! (:tailer-impl t))
     (tail/to-index! (:tailer-impl t) i))
+  (reset! (:dirty t) false)
   t)
 
 (defmacro with-tailer
@@ -324,10 +344,13 @@
   message."
   [{{id :id} :queue
     t-impl   :tailer-impl
+    dirty    :dirty
     :as      tailer}]
   {:pre [(tailer? tailer)]}
-  (when-let [msg (tail/read! t-impl)]
-    (materialize-meta id tailer msg)))
+  (let [msg (tail/read! t-impl)]
+    (reset! dirty false)
+    (when msg
+      (materialize-meta id tailer msg))))
 
 (defn peek
   "Like read, but does not advance tailer."
