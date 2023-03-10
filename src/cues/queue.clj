@@ -56,7 +56,7 @@
 (defn id->str
   [id]
   (cond
-    (qualified-keyword? id) (str (namespace id) "/" (name id))
+    (qualified-keyword? id) (str (namespace id) "." (name id))
     (keyword? id)           (name id)
     (uuid? id)              (str id)
     (string? id)            id))
@@ -86,19 +86,19 @@
 
 (defn- suffix-id
   "Disambiguates beteween similar ids within a topology."
-  [suffix id]
-  (keyword (namespace id)
-           (str (name id) suffix)))
+  [id suffix]
+  (cond
+    (keyword? id) (keyword (namespace id) (str (name id) suffix))
+    (uuid? id)    (str id suffix)
+    (string? id)  (str id suffix)))
 
 (defn- combined-id
-  [id1 id2]
-  (when (and id1 id2)
-    (letfn [(combine [id]
-              (let [ns (namespace id)
-                    n  (name id)]
-                (str ns (when ns ".") n)))]
-      (keyword (combine id1)
-               (combine id2)))))
+  [& ids]
+  (when-let [ids (not-empty (remove nil? ids))]
+    (->> ids
+         (map id->str)
+         (interpose ".")
+         (apply str))))
 
 (declare last-index)
 
@@ -162,6 +162,15 @@
 
 (declare prime-tailer)
 
+(defn- tailer-id
+  [queue id]
+  (when id
+    (combined-id (:id queue) id)))
+
+(defn- tailer-opts
+  [tid]
+  {:id (some-> tid id->str)})
+
 (defn tailer
   "Creates a tailer.
 
@@ -174,8 +183,8 @@
   ([queue id] (tailer queue id nil))
   ([queue id unblock]
    {:pre [(queue? queue)]}
-   (let [tid  (combined-id (:id queue) id)
-         opts {:id (some-> tid id->str)}
+   (let [tid  (tailer-id queue id)
+         opts (tailer-opts tid)
          t    (tail/make (:queue-impl queue) opts)]
      (prime-tailer
       {:type        ::tailer
@@ -541,7 +550,7 @@
    :q/hash attempt-hash})
 
 (defmethod snapshot-persist :default
-  [{id      :id
+  [{uid     :uid
     try-a   :try-appender
     tailers :tailers
     :as     process}]
@@ -549,7 +558,7 @@
   (let [m (->> tailers
                (map (juxt :id index))
                (into {})
-               (snapshot-map id))]
+               (snapshot-map uid))]
     (write try-a m)
     (assoc process :snapshot-hash (hash m))))
 
@@ -860,10 +869,10 @@
   (comp processor-loop* wrap-error-handling))
 
 (defn- join-tailers
-  [{:keys [tid in]} unblock]
+  [{:keys [uid in]} unblock]
   (some->> in
            (util/seqify)
-           (map #(tailer % tid unblock))
+           (map #(tailer % uid unblock))
            (doall)))
 
 (defn- fork-appenders
@@ -874,12 +883,12 @@
            (doall)))
 
 (defn- backing-queue
-  [{:keys [id config]}]
+  [{:keys [id uid config]}]
   (let [p (-> config
               (:queue-opts)
               (:queue-path))]
-    (queue id {:transient  true
-               :queue-path p})))
+    (queue uid {:transient  true
+                :queue-path p})))
 
 (defn- start-impl
   [process unblock start-fn]
@@ -914,15 +923,14 @@
     (recover-mem process)))
 
 (defn- start-jf-join
-  [{:keys [id] :as process} unblock fork-queue]
+  [process unblock fork-queue]
   (-> process
-      (assoc :id        id
-             :out       fork-queue
+      (assoc :out       fork-queue
              :result-fn (fn [_ r] r))
       (start-impl unblock start-join)))
 
 (defn- start-jf-fork
-  [{:keys [id out] :as process} unblock fork-queue]
+  [{:keys [id uid out] :as process} unblock fork-queue]
   (doall
    (for [{oid :id :as o} out]
      (-> process
@@ -930,18 +938,18 @@
                 :run-fn fork-run-fn!!
                 :in     fork-queue
                 :out    o
-                :tid    oid)
+                :uid    (combined-id uid oid))
          (start-impl unblock start-join)))))
 
 (defn- fork-id
   [process]
-  (combined-id (:id process) :fork))
+  (combined-id (:uid process) :fork))
 
 (defn- start-join-fork
   "An backing queue used to coordinate between fork and join."
   [process unblock]
   (let [q (->> (fork-id process)
-               (assoc process :id)
+               (assoc process :uid)
                (backing-queue))
         j (start-jf-join process unblock q)
         f (start-jf-fork process unblock q)]
@@ -953,13 +961,13 @@
   (zipmap (map (comp :id :queue) xs) xs))
 
 (defn- imp-tailers
-  [{tid            :tid
+  [{uid            :uid
     {t :tailers
      a :appenders} :imperative
     :as            process} unblock]
   (let [p {:in  t
            :out a
-           :tid (suffix-id "-i" tid)}]
+           :uid (suffix-id uid "-i")}]
     {:tailers   (zip (join-tailers p unblock))
      :appenders (zip (fork-appenders p))}))
 
@@ -1099,7 +1107,7 @@
   (let [[t p] (s*/parse ::processor-impl process)]
     (-> p
         (assoc :type t)
-        (assoc :tid (:id p)))))
+        (assoc :uid (:id p)))))
 
 (defn- get-one-q
   [g id]
@@ -1122,7 +1130,8 @@
         (assoc :queue-opts default))))
 
 (defn- build-processor
-  [{e      :error-queue
+  [{id     :id
+    e      :error-queue
     system :system
     :as    g} {t   :tailers
                a   :appenders
@@ -1137,6 +1146,7 @@
     t       (assoc-in [:imperative :tailers] (get-q g t))
     a       (assoc-in [:imperative :appenders] (get-q g a))
     process (assoc :config (build-config g process))
+    id      (update :uid (partial combined-id id))
     true    (assoc :state (atom nil))))
 
 (defn- build-processors
@@ -1175,7 +1185,7 @@
   (->> x
        (util/seqify)
        (map :id)
-       (map (partial suffix-id "-q"))
+       (map #(suffix-id % "-q"))
        (set)))
 
 (defn- remove-queues
@@ -1339,6 +1349,12 @@
   (s/or ::processor ::processor-generic
         ::source    :map/source))
 
+(s/def ::processors
+  (s/coll-of ::processor :kind sequential?))
+
+(s/def ::graph
+  (s/keys :req-un [::processors ::id]))
+
 (defmulti processor
   (constantly nil))
 
@@ -1437,7 +1453,7 @@
 
 (defn- parse-processor
   [process]
-  (let [[t parsed]          (s*/parse ::processor process)
+  (let [[t parsed]          process
         {:keys [id
                 in
                 out
@@ -1461,7 +1477,7 @@
 
 (defn parse-graph
   [g]
-  (-> g
+  (-> (s*/parse ::graph g)
       (assoc :config g)
       (update :processors (partial mapv parse-processor))))
 

@@ -125,7 +125,8 @@ But building an entire system is also straightforward:
 
 (defn example-graph
   [db]
-  {:processors [{:id ::source}
+  {:id         ::example
+   :processors [{:id ::source}
                 {:id  ::inc-x
                  :in  {:input ::source}
                  :out {:output ::tx}}
@@ -493,7 +494,8 @@ connects everything together into a graph:
 ```clj
 (defn example-graph
   [db]
-  {:processors [{:id ::source}
+  {:id         ::example
+   :processors [{:id ::source}
                 {:id  ::processor
                  :in  {:input ::source}
                  :out {:output ::tx}}
@@ -502,12 +504,12 @@ connects everything together into a graph:
                  :opts {:db db}}]})
 ```
 
-This function returns a declarative graph spec. The `:processors`
-attribute in the spec declares a catalog of processors, each of which
-has a unique `:id`.
+This function returns a declarative graph spec. Every graph requires a
+unique `:id`. The `:processors` attribute in the spec declares a
+catalog of processors, each of which also requires a unique `:id`.
 
 The processor `:id` is used to dispatch to the `q/processor` method,
-but because each `:id` must be unique, you can also use the `:fn`
+but because each `:id` must be unique, you can instead use the `:fn`
 attribute to set the `q/processor` method dispatch value for different
 `:id`s.
 
@@ -597,7 +599,8 @@ source:
 ```clj
 (defn example-graph
   [db]
-  {:source     ::source
+  {:id         ::example
+   :source     ::source
    :processors [{:id ::source}
                 ...]})
 ```
@@ -835,7 +838,8 @@ exceptions to an error queue:
 ```clj
 (defn example-graph
   [db]
-  {:source      ::source
+  {:id          ::example
+   :source      ::source
    :error-queue ::error
    :processors  [{:id ::source}
                  ...]})
@@ -914,7 +918,8 @@ using the queue id:
 ```clj
 (defn example-graph
   [db]
-  {:queue-opts {::queue-id {:queue-path "data/example"
+  {:id         ::example
+   :queue-opts {::queue-id {:queue-path "data/example"
                             :queue-meta #{:q/t :q/time}
                             :transient  true}
                 ::source   {...}
@@ -934,7 +939,8 @@ options for specific queues will be merged with the defaults:
 
 (defn example-graph
   [db]
-  {:queue-opts {::q/default {:queue-path "data/default-path"
+  {:id         ::example
+   :queue-opts {::q/default {:queue-path "data/default-path"
                              :queue-meta #{:q/t}}
                 ::source    {:queue-path "data/other"}      ; merge ::q/default ::source
                 ::tx        {...}}                          ; merge ::q/default ::tx
@@ -966,7 +972,8 @@ The full set of options are:
    ```clj
    (defn example-graph
      [db]
-     {:queue-opts {::q/default {:queue-path "data/example"
+     {:id         ::example
+      :queue-opts {::q/default {:queue-path "data/example"
                                 :queue-meta #{:q/t}}
                    ::tx        {:queue-meta #{:q/t :q/time :tx/t}}}
       :processors [{:id ::source}

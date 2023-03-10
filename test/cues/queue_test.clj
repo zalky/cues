@@ -84,7 +84,8 @@
 (t/deftest graph-test-system
   (let [done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::source
+      [g {:id         ::graph
+          :processors [{:id  ::source
                         :out ::q1}
                        {:id ::sink-system
                         :fn (fn [{:keys [system]} {{x :x} ::q1}]
@@ -99,7 +100,8 @@
 (t/deftest graph-test-source-sink
   (let [done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::source
+      [g {:id         ::graph
+          :processors [{:id  ::source
                         :out ::q1}
                        {:id ::sink-source
                         :fn (x= done ::q1 3)
@@ -118,7 +120,8 @@
 (t/deftest graph-test-pipe
   (let [done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::source
+      [g {:id         ::graph
+          :processors [{:id  ::source
                         :out ::q1}
                        {:id  ::pipe
                         :fn  (processor-fn
@@ -153,7 +156,8 @@
         d3   (promise)
         done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::s1
+      [g {:id         ::graph
+          :processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
                         :out ::q2}
@@ -204,7 +208,8 @@
 (t/deftest graph-test-imperative
   (let [done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::source
+      [g {:id         ::graph
+          :processors [{:id  ::source
                         :out ::q1}
                        {:id        ::pipe
                         :fn        (fn [{{a ::q2} :appenders
@@ -237,7 +242,8 @@
 (t/deftest graph-test-join
   (let [done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::s1
+      [g {:id         ::graph
+          :processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
                         :out ::q2}
@@ -275,7 +281,8 @@
   (let [q3-done (promise)
         q4-done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::s1
+      [g {:id         ::graph
+          :processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
                         :out ::q2}
@@ -325,7 +332,8 @@
   (let [q3-done (promise)
         q4-done (promise)]
     (qt/with-graph-impl-and-delete
-      [g {:processors [{:id  ::s1
+      [g {:id         ::graph
+          :processors [{:id  ::s1
                         :out ::q1}
                        {:id  ::s2
                         :out ::q2}
@@ -370,7 +378,8 @@
   (log/with-level :fatal
     (let [done (promise)]
       (qt/with-graph-impl-and-delete
-        [g {:processors [{:id  ::source
+        [g {:id         ::graph
+            :processors [{:id  ::source
                           :out ::q1}
                          {:id  ::pipe-error
                           :fn  (fn [_ {msg ::q1}]
@@ -512,7 +521,8 @@
   (let [done (promise)
         db   (atom {})]
     (qt/with-graph-and-delete
-      [g {:queue-opts {::tx {:queue-meta #{:q/t :tx/t}}}
+      [g {:id         ::graph
+          :queue-opts {::tx {:queue-meta #{:q/t :tx/t}}}
           :processors [{:id ::s1}
                        {:id ::s2}
                        {:id    ::processor-b
@@ -581,7 +591,8 @@
            q4-done (promise)
            timeout (max (/ n 10) 1000)]
        (qt/with-graph-impl-and-delete
-         [g {:processors [{:id  ::s1
+         [g {:id         ::graph
+             :processors [{:id  ::s1
                            :out ::q1}
                           {:id  ::s2
                            :out ::q2}
