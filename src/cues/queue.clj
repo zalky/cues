@@ -1044,8 +1044,12 @@
     :many-1 (first form)
     form))
 
-(s/def ::id     qualified-keyword?)
 (s/def :impl/fn fn?)
+
+(s/def ::id
+  (s*/non-conformer
+   (s/or :k qualified-keyword?
+         :s string?)))
 
 (s/def ::id-many-1
   (s/coll-of ::id
@@ -1115,14 +1119,16 @@
 
 (defn- get-q
   [g ids]
-  (if (keyword? ids)
-    (get-one-q g ids)
-    (map (partial get-one-q g) ids)))
+  (if (coll? ids)
+    (map (partial get-one-q g) ids)
+    (get-one-q g ids)))
 
 (def ^:private processor-config-keys
   [:id :in :out :tailers :appenders :topics :types])
 
 (defn- build-config
+  "If default queues opts are provided, they are also used for processor
+  backing queues."
   [g process]
   (let [default (get-in g [:queue-opts ::default])]
     (-> process

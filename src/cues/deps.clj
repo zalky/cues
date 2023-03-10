@@ -5,11 +5,16 @@
             [clojure.spec.alpha :as s]
             [com.stuartsierra.dependency :as dep]))
 
+(s/def ::step
+  (s*/non-conformer
+   (s/or :k qualified-keyword?
+         :s string?)))
+
 (s/def ::steps
   (s/or :dag   ::dag
         :pipe  ::pipeline
         :steps ::set-of-steps
-        :step  qualified-keyword?))
+        :step  ::step))
 
 (s/def ::set-of-steps
   (s*/conform-to
