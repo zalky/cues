@@ -21,9 +21,13 @@ not provide blocking or persistent tailers.
 
 1. Persistent _blocking_ queues, persistent tailers, and appenders
 2. Processors for consuming and producing messages
-3. Graphs for connecting processors together via queues
-4. Error handling and message metadata
-5. Zero-configuration defaults
+3. Simple, declarative graphs for connecting processors together via
+   queues
+4. Brokerless, fault-tolerant _exactly-once_ graph delivery semantics
+5. Message metadata
+6. Microsecond latencies (sometimes even less)
+7. Zero-configuration defaults
+8. Not distributed
 
 By themselves, the blocking queues are similar to what durable-queue
 provides, just one or more orders of magnitude faster. They also come
@@ -458,11 +462,11 @@ provides two higher-level features:
 Processors are defined using the `cues.queue/processor` multimethod:
 
 ```clj
-(defmethod q/processor ::processor
+(defmethod q/processor ::inc-x
   [process {msg :input}]
   {:output (update msg :x inc)})
 
-(defmethod q/processor ::doc-store
+(defmethod q/processor ::store-x
   [{{db :db} :opts} {msg :input}]
   (swap! db assoc (:x msg) msg)
   nil)
@@ -475,13 +479,13 @@ next section.
 
 The other argument is a map of input messages. Each message has an
 input binding, and there can be more than one message in the map. In
-`::processor`, the input message is bound to `:input`.
+`::inc-x`, the input message is bound to `:input`.
 
 Typically a processor will then take the input messages, and return
 one or more output messages in an output binding map. Here,
-`::processor` binds the output message to `:output`. In contrast,
-you'll notice that `::doc-store` returns `nil`, not a binding map. The
-next section will explain why `::processor` and `::doc-store` are
+`::inc-x` binds the output message to `:output`. In contrast,
+you'll notice that `::store-x` returns `nil`, not a binding map. The
+next section will explain why `::inc-x` and `::store-x` are
 different in this respect.
 
 Otherwise that's really all there is to processors.
@@ -496,10 +500,10 @@ connects everything together into a graph:
   [db]
   {:id         ::example
    :processors [{:id ::source}
-                {:id  ::processor
+                {:id  ::inc-x
                  :in  {:input ::source}
                  :out {:output ::tx}}
-                {:id   ::doc-store
+                {:id   ::store-x
                  :in   {:input ::tx}
                  :opts {:db db}}]})
 ```
@@ -515,20 +519,20 @@ attribute to set the `q/processor` method dispatch value for different
 
 ```clj
 {:id  ::unique-id-1
- :fn  ::processor
+ :fn  ::inc-x
  ...}
 {:id  ::unique-id-2
- :fn  ::processor
+ :fn  ::inc-x
  ...}
 ```
 
 The keys in the `:in` and `:out` maps are always _processor bindings_
 and the values are always _queue ids_.
 
-Taking `::processor` as an example:
+Taking `::inc-x` as an example:
 
 ```clj
-{:id  ::processor
+{:id  ::inc-x
  :in  {:input ::source}
  :out {:output ::tx}}
 ```
@@ -537,30 +541,30 @@ The input messages from the `::source` queue are bound to `:input`,
 and output messages bound to `:output` will be placed on the `::tx`
 queue.
 
-Similarly for `::doc-store`, input messages from the `::tx` queue are
+Similarly for `::store-x`, input messages from the `::tx` queue are
 bound to `:input`:
 
 ```clj
-{:id   ::doc-store
+{:id   ::store-x
  :in   {:input ::tx}
  :opts {:db db}}
 ```
 
 However, notice that there are no output queues defined for
-`::doc-store`. Instead `::doc-store` takes the input messages and
+`::store-x`. Instead `::store-x` takes the input messages and
 transacts them to the `db` provided via `:opts`:
 
 ```clj
-(defmethod q/processor ::doc-store
+(defmethod q/processor ::store-x
   [{{db :db} :opts} {msg :input}]
   (swap! db assoc (:x msg) msg)
   nil)
 ```
 
-If you're familiar with Kafka, `::doc-store` would be analogous to a
+If you're familiar with Kafka, `::store-x` would be analogous to a
 Sink Connector. Essentially this is an exit node for messages from the
 graph. The return value in a sink processor fn is discarded, and so
-`::doc-store` does not bother with an output binding. A sink processor
+`::store-x` does not bother with an output binding. A sink processor
 does not actually have to return `nil`, but it is good practice.
 
 You can also define processors similar to Kafka Source
@@ -613,12 +617,12 @@ the source:
 ```
 
 The message will move through the queues and the processors until it
-is deposited in the `example-db` atom by the `::doc-store` sink:
+is deposited in the `example-db` atom by the `::store-x` sink:
 
 ```clj
 @example-db
 ;; =>
-{2 {:x 2}}   ; :x was incremented by ::processor
+{2 {:x 2}}   ; :x was incremented by ::inc-x
 
 ;; get all the messages in the graph, each key is a queue
 (q/all-graph-messages g)
@@ -651,7 +655,7 @@ the processor. Messages that do not match are skipped.
 Here is a type filter:
 
 ```clj
-{:id    ::doc-store
+{:id    ::store-x
  :types :q.type/doc
  :in    {:in ::tx}}
 ```
@@ -789,13 +793,13 @@ We can inspect the topology our graph directly:
 ```clj
 (q/topology g)
 ;; =>
-{:nodes #{::doc-store ::source ::processor}
+{:nodes #{::store-x ::source ::inc-x}
  :deps  {:dependencies
-         {::doc-store #{::processor}
-          ::processor #{::source}}
+         {::store-x #{::inc-x}
+          ::inc-x   #{::source}}
          :dependents
-         {::processor #{::doc-store}
-          ::source    #{::processor}}}}
+         {::inc-x  #{::store-x}
+          ::source #{::inc-x}}}}
 ```
 
 And compute properties of the topology:
@@ -803,9 +807,9 @@ And compute properties of the topology:
 ```clj
 (require '[cues.deps :as deps])
 
-(deps/transitive-dependencies (q/topology g) ::doc-store)
+(deps/transitive-dependencies (q/topology g) ::store-x)
 ;; =>
-#{::source ::processor}
+#{::source ::inc-x}
 ```
 
 There's a number of topology/dependency functions that are available
@@ -876,7 +880,7 @@ You can also add additional context to the error message with the
 `cues.error/on-error` macro:
 
 ```clj
-(defmethod q/processor ::processor
+(defmethod q/processor ::inc-x
   [process {msg :input}]
   (err/on-error {:q/type       :q.type.err/my-error-type
                  :more-context context
@@ -925,7 +929,7 @@ using the queue id:
                 ::source   {...}
                 ::tx       {...}}
    :processors [{:id ::source}
-                {:id  ::processor
+                {:id  ::inc-x
                  :in  {:input ::source}
                  :out {:output ::tx}}
                 ...]})
@@ -945,7 +949,7 @@ options for specific queues will be merged with the defaults:
                 ::source    {:queue-path "data/other"}      ; merge ::q/default ::source
                 ::tx        {...}}                          ; merge ::q/default ::tx
    :processors [{:id ::source}
-                {:id  ::processor
+                {:id  ::inc-x
                  :in  {:input ::source}
                  :out {:output ::tx}}
                 ...]})
@@ -977,7 +981,7 @@ The full set of options are:
                                 :queue-meta #{:q/t}}
                    ::tx        {:queue-meta #{:q/t :q/time :tx/t}}}
       :processors [{:id ::source}
-                   {:id  ::processor
+                   {:id  ::inc-x
                     :in  {:input ::source}
                     :out {:output ::tx}}
                    ...]})
