@@ -1,10 +1,12 @@
 (ns cues.controller-cache
-  "We require a global controller cache to ensure that any instance of a
-  blocking tailers will successfully unblock when any instance of a
-  blocking appender writes to any instance of a blocking queue, that
-  are all bound to the same path on disk, once a controller has been
-  bound to a path, it should never be removed for the lifetime of the
-  app, unless the actual queue files on disk have been deleted.")
+  "Provides a global controller cache.
+
+  Controllers ensure that blocking tailers will unblock when an
+  appender writes to a blocking queue. Each queue has one and only one
+  corresponding controller. Once a controller has been bound to a
+  queue on disk, it should never be removed for the lifetime of the
+  app, unless the queue has been deleted on disk, in which case, the
+  controller must be purged from the cache.")
 
 (def cache
   (atom {}))

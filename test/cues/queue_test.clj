@@ -6,7 +6,8 @@
             [cues.util :as cutil]
             [taoensso.timbre :as log]
 
-            [cues.log]))                ; Ensure logging is configured for tests.
+            ;; Configure logging for tests.
+            [cues.log]))
 
 (t/use-fixtures :each
   (t/join-fixtures

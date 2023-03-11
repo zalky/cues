@@ -1,4 +1,5 @@
 (ns cues.deps
+  "Extends com.stuartsierra.dependency for disconnected graphs."
   (:require [cinch.core :as util]
             [cinch.spec :as s*]
             [clojure.set :as set]
@@ -197,7 +198,7 @@
        (not-empty)
        (set)))
 
-;; Re-bind c.t.n.d. api
+;; Re-bind com.stuartsierra.dependency API
 
 (def immediate-dependencies      dep/immediate-dependencies)
 (def immediate-dependents        dep/immediate-dependents)

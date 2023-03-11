@@ -53,7 +53,7 @@
   (io/delete-file f))
 
 (defn list-files
-  "Lists files in the directory, not recurisve."
+  "Lists files in the directory, not recursive."
   [^File f]
   (->> f
        (.listFiles)

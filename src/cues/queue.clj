@@ -1,4 +1,5 @@
 (ns cues.queue
+  "Core Cues API."
   (:refer-clojure :exclude [read peek])
   (:require [cinch.core :as util]
             [cinch.spec :as s*]
@@ -85,7 +86,7 @@
            (nippy/thaw)))))
 
 (defn- suffix-id
-  "Disambiguates beteween similar ids within a topology."
+  "Disambiguates between similar ids within a topology."
   [id suffix]
   (cond
     (keyword? id) (keyword (namespace id) (str (name id) suffix))
@@ -121,8 +122,11 @@
   Options include:
 
   :transient
-            A boolean. If true, queue backing file will be rolled
-            daily, and deleted after 10 days.
+            A Boolean. If true, queue backing file will be rolled
+            daily, and deleted after 10 days. You can configure
+            alternative behaviour using the :roll-cycle,
+            :cycle-release-tasks and :cycle-acquire-tasks options
+            described below.
 
   The following options are passed along to the underlying
   implementation:
@@ -138,14 +142,15 @@
             :large-hourly-sparse
 
   :autoclose-on-jvm-exit?
-            Whether to cleanly close the JVM on exit.
+            A Boolean. Whether to cleanly close the JVM on
+            exit. Default is true.
 
   :cycle-release-tasks
-            Tasks to run on queue release. See
+            Tasks to run on queue cycle release. For more, see
             qbits.tape.cycle-listener in the Tape library.
 
   :cycle-acquire-tasks
-            Tasks to run on queue acquisition. See
+            Tasks to run on queue cycle acquisition. For more, see
             qbits.tape.cycle-listener in the Tape library."
   ([id]
    (queue id nil))
@@ -484,10 +489,10 @@
 
 (defn read!!
   "Blocking read. The tailer will consume eagerly if it can. If not, it
-  watches the controller until a new message is available. It is
-  critical that the watch be placed before the first read. Note that
-  the tailer index will always be one ahead of the last index it
-  read. Read will continue and return nil if at any point a unblock
+  will block until a new message is available. Implementation note: it
+  is critical that the watch be placed before the first read. Note
+  that the tailer index will always be ahead of the last index it
+  read. Read will continue and return nil if at any point an unblock
   signal is received. This allows blocked threads to be cleaned up on
   unblock events."
   [tailer]
@@ -528,16 +533,25 @@
                    (vector t))))))
 
 (defmulti snapshot-persist
-  "Called once before each processor step."
+  "Persists processor tailer indices to a backing queue. Called once
+  before each processor step. Taken together, snapshot-persist,
+  attempt-persist, and recover-persist implement message delivery
+  semantics in Cues processors."
   (comp :strategy :config))
 
 (defmulti attempt-persist
-  "Called once during each processor attempt."
+  "Persists message to processor output queues, as well as attempt data
+  to backing queue. Called once during each processor step. Taken
+  together, snapshot-persist, attempt-persist, and recover-persist
+  implement message delivery semantics in Cues processors."
   (fn [process _]
     (-> process :config :strategy)))
 
 (defmulti recover-persist
-  "Called once on processor start."
+  "Recovers processor tailer indices from backing queue once on
+  processor start. Taken together, snapshot-persist, attempt-persist,
+  and recover-persist implement message delivery semantics in Cues
+  processors."
   (comp :strategy :config))
 
 (defn- snapshot-map
@@ -576,7 +590,7 @@
     (throw ex)))
 
 (def ^:dynamic add-attempt-hash
-  "Only rebind in tesitng."
+  "Only rebind in testing."
   (fn [attempt-hash msg]
     (assoc-in msg [:q/meta :q/hash] attempt-hash)))
 
@@ -714,7 +728,7 @@
 
 (defn throw-interrupt!
   []
-  (throw (InterruptedException. "Interrupting processer")))
+  (throw (InterruptedException. "Interrupting processor")))
 
 (defn- recover-mem
   "Reset tailer positions and interrupts the processor."
@@ -786,7 +800,7 @@
     (f process)))
 
 (defn- select-processor
-  "Keys passed on to the processor fn"
+  "Keys passed on to the processor fn."
   [{imperative :imperative
     :as        process}]
   (merge process imperative))
@@ -908,7 +922,7 @@
 
 (defn- start-join
   "Reads messages from a seq of input tailers, applies a processor fn,
-  and writes the reuslt to a single output appender. While queues can
+  and writes the result to a single output appender. While queues can
   be shared across threads, appenders and tailers cannot. They must be ;
   created in the thread they are meant to be used in to avoid errors."
   [{:keys [out] :as process} unblock try-queue]

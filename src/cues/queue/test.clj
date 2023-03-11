@@ -1,4 +1,5 @@
 (ns cues.queue.test
+  "Provides Cues test fixtures."
   (:require [cinch.core :as util]
             [cues.queue :as q]
             [taoensso.timbre :as log]))
@@ -55,8 +56,17 @@
       (inc (- i i-1)))))
 
 (defn with-deterministic-meta
-  "The order that messages are placed on outbound fork queues is
-  non-deterministic, therefore we can't test timestamps here."
+  "A number of cues.queue functions are rebound to make queue indices
+  easier to work with in unit tests. While ChronicleQueue indicies are
+  deterministic, they have a complex relationship to the roll cycles
+  of the data on disk. Queue indices are guaranteed to increase
+  monotonically, but not always continguously, and in general code
+  that tries to predict future indices should be avoided. However,
+  under the narrow constraints of the unit tests and test queue
+  configurations, these new bindings will start all indices at 1 and
+  then increase continguously. Just beware that this does NOT hold in
+  general, and you should never rebind these methods outside of unit
+  tests."
   [f]
   (binding [q/last-read-index  last-read-index-from-1
             q/last-index       last-index-from-1
