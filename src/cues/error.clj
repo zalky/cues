@@ -33,6 +33,8 @@
   [error-expr & body]
   `(try
      (do ~@body)
+     (catch InterruptedException e#
+       (throw e#))
      (catch Throwable e#
        (throw (error ~error-expr e#)))))
 

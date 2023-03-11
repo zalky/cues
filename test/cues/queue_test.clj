@@ -573,6 +573,53 @@
                                                 ::tx {:q/t 2}}
                                       :tx/t    2}}]})))))
 
+(defmethod q/processor ::throw-interrupt
+  [{{:keys [done throw?]} :opts
+    :as process} {msg :in}]
+  (try
+    (when throw? (q/throw-interrupt!))
+    (finally
+      (when done
+        (deliver done true))))
+  {:out msg})
+
+(defmethod q/processor ::done
+  [{{:keys [done]} :opts} {msg :in}]
+  (deliver done true))
+
+(t/deftest exactly-once-test
+  (let [done (promise)]
+    (let [g (->> {:id         ::graph
+                  :processors [{:id ::s1}
+                               {:id   ::throw-interrupt
+                                :in   {:in ::s1}
+                                :out  {:out ::tx}
+                                :opts {:throw? true
+                                       :done   done}}]}
+                 (q/graph)
+                 (q/start-graph!))]
+      (q/send! g ::s1 {:x 1})
+      (is (done? done))
+      (q/stop-graph! g)))
+
+  (let [done   (promise)
+        throw? (atom false)]
+    (let [g (->> {:id         ::graph
+                  :processors [{:id ::s1}
+                               {:id  ::throw-interrupt
+                                :in  {:in ::s1}
+                                :out {:out ::tx}}
+                               {:id   ::done
+                                :in   {:in ::tx}
+                                :opts {:done done}}]}
+                 (q/graph)
+                 (q/start-graph!))]
+      (is (done? done))
+      (is (= (q/all-graph-messages g)
+             {::s1 [{:x 1}]
+              ::tx [{:x 1}]}))
+      (q/delete-graph-queues! g true))))
+
 (defn p-counter
   [p n]
   (let [c (atom 0)]

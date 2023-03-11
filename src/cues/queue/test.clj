@@ -8,30 +8,50 @@
   (log/with-level :warn
     (f)))
 
+(defn index-from-1
+  "For testing purposes only."
+  [tailer]
+  (q/with-tailer [t-1 (:queue tailer)]
+    (let [i   (q/index* tailer)
+          _   (q/to-start t-1)
+          i-1 (q/index* t-1)]
+      (inc (- i i-1)))))
+
+(defn last-index-from-1
+  "For testing purposes only."
+  [queue]
+  (q/with-tailer [t-1 queue]
+    (let [i   (q/last-index* queue)
+          _   (q/to-start t-1)
+          i-1 (q/index* t-1)]
+      (inc (- i i-1)))))
+
 (defn last-read-index-from-1
   "For testing purposes only."
   [tailer]
   (q/with-tailer [t-1 (:queue tailer)]
     (let [i   (q/last-read-index* tailer)
           _   (q/to-start t-1)
-          i-1 (q/index t-1)]
+          i-1 (q/index* t-1)]
       (inc (- i i-1)))))
 
 (defn to-index-from-1
   "For testing purposes only."
   [tailer i]
-  (q/with-tailer [t-1 (:queue tailer)]
-    (let [_   (q/to-start t-1)
-          i-1 (q/index t-1)]
-      (->> (+ i (dec i-1))
-           (q/to-index* tailer)))))
+  (if (pos? i)
+    (q/with-tailer [t-1 (:queue tailer)]
+      (let [_   (q/to-start t-1)
+            i-1 (q/index* t-1)]
+        (->> (+ i (dec i-1))
+             (q/to-index* tailer))))
+    (q/to-start tailer)))
 
 (defn written-index-from-1
   "For testing purposes only."
   [queue i]
   (q/with-tailer [t-1 queue]
     (let [_   (q/to-start t-1)
-          i-1 (q/index t-1)]
+          i-1 (q/index* t-1)]
       (inc (- i i-1)))))
 
 (defn with-deterministic-meta
@@ -39,7 +59,9 @@
   non-deterministic, therefore we can't test timestamps here."
   [f]
   (binding [q/last-read-index  last-read-index-from-1
+            q/last-index       last-index-from-1
             q/to-index         to-index-from-1
+            q/index            index-from-1
             q/written-index    written-index-from-1
             q/add-attempt-hash (fn [_ msg] msg)]
     (f)))

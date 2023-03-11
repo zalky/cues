@@ -165,7 +165,7 @@
 (defn- tailer-id
   [queue id]
   (when id
-    (combined-id (:id queue) id)))
+    (combined-id id (:id queue))))
 
 (defn- tailer-opts
   [tid]
@@ -235,7 +235,7 @@
   (reset! (:dirty t) false)
   t)
 
-(defn index
+(defn index*
   "Gets the index at the tailer's current position. ChronicleQueue
   tailers do not update their current index after changing direction
   until AFTER the next read. Cues guards against this edge case by
@@ -249,6 +249,10 @@
     (-> "Cannot take the index of a tailer after setting direction without first doing a read"
         (ex-info t)
         (throw))))
+
+(def ^:dynamic index
+  "Only rebind for testing!"
+  index*)
 
 (def queue-obj
   "Returns the underlying ChronicleQueue object."
@@ -281,6 +285,10 @@
   (reset! (:dirty t) false)
   t)
 
+(def ^:dynamic to-index
+  "Only rebind for testing!"
+  to-index*)
+
 (defmacro with-tailer
   [bindings & body]
   (let [b (take-nth 2 bindings)
@@ -303,14 +311,10 @@
   initialization."
   [tailer]
   {:pre [(tailer? tailer)]}
-  (->> (index tailer)
+  (->> (index* tailer)
        (to-index* tailer)))
 
-(def ^:dynamic to-index
-  "Only rebind for testing!"
-  to-index*)
-
-(defn last-index
+(defn last-index*
   "A last index implementation that works for any kind of queue or
   appender. Note that appenders and queues will not necessarily return
   the same result, and appenders will throw an error if they have not
@@ -325,6 +329,10 @@
       (satisfies? app/IAppender x) (app/last-index x)
       (appender? x)                (app/last-index (:appender-impl x))
       (queue? x)                   (last-index* (:queue-impl x)))))
+
+(def ^:dynamic last-index
+  "Only rebind for testing!"
+  last-index*)
 
 (defn last-read-index*
   [tailer]
@@ -563,14 +571,9 @@
     (assoc process :snapshot-hash (hash m))))
 
 (defn- maybe-throw-attempt
-  [appender msg ex]
+  [ex]
   (when (instance? Throwable ex)
-    (-> "Appender write failed"
-        (ex-info {:type     ::write-failed
-                  :appender appender
-                  :msg      msg}
-                 ex)
-        (throw))))
+    (throw ex)))
 
 (def ^:dynamic add-attempt-hash
   "Only rebind in tesitng."
@@ -626,7 +629,7 @@
               (wrap-attempt)
               (wrap-write))
         r (f a msg)]
-    (maybe-throw-attempt a msg r)
+    (maybe-throw-attempt r)
     r))
 
 (defn- nil-attempt
@@ -709,7 +712,7 @@
        (doall)
        (assoc process :snapshot-mem)))
 
-(defn- throw-interrupt!
+(defn throw-interrupt!
   []
   (throw (InterruptedException. "Interrupting processer")))
 
@@ -840,8 +843,13 @@
       (update :fn wrap-processor-fn)))
 
 (defn- close-tailers
-  [{:keys [tailers]}]
-  (doseq [t tailers]
+  [process]
+  (doseq [t (:tailers process)]
+    (close-tailer! t))
+  (doseq [t (-> process
+                (:imperative)
+                (:tailers)
+                (vals))]
     (close-tailer! t)))
 
 (defn- processor-step
@@ -860,10 +868,12 @@
 
 (defn- processor-loop*
   [process]
-  (recover-persist process)
-  (while (and (running? process)
-              (processor-step process)))
-  (close-tailers process))
+  (try
+    (recover-persist process)
+    (while (and (running? process)
+                (processor-step process)))
+    (finally
+      (close-tailers process))))
 
 (def ^:private processor-loop
   (comp processor-loop* wrap-error-handling))
