@@ -529,16 +529,16 @@
 
 (defmulti snapshot-persist
   "Called once before each processor step."
-  :strategy)
+  (comp :strategy :config))
 
 (defmulti attempt-persist
   "Called once during each processor attempt."
   (fn [process _]
-    (:strategy process)))
+    (-> process :config :strategy)))
 
 (defmulti recover-persist
   "Called once on processor start."
-  :strategy)
+  (comp :strategy :config))
 
 (defn- snapshot-map
   [id tailer-indices]
@@ -557,7 +557,7 @@
   {:q/type :q.type.try/nil-attempt
    :q/hash attempt-hash})
 
-(defmethod snapshot-persist :default
+(defmethod snapshot-persist ::exactly-once
   [{uid     :uid
     try-a   :try-appender
     tailers :tailers
@@ -640,7 +640,7 @@
        (nil-attempt-map)
        (write try-a)))
 
-(defmethod attempt-persist :default
+(defmethod attempt-persist ::exactly-once
   [process msg]
   (if (and (:appender process) msg)
     (full-attempt process msg)
@@ -689,7 +689,7 @@
     (when-not (= h (hash snapshot))
       (recover-snapshot process snapshot))))
 
-(defmethod recover-persist :default
+(defmethod recover-persist ::exactly-once
   [{{q :queue} :try-appender
     :as        process}]
   (with-tailer [t q]
@@ -1140,10 +1140,12 @@
   "If default queues opts are provided, they are also used for processor
   backing queues."
   [g process]
-  (let [default (get-in g [:queue-opts ::default])]
+  (let [default (get-in g [:queue-opts ::default])
+        s       (:strategy g ::exactly-once)]
     (-> process
         (select-keys processor-config-keys)
-        (assoc :queue-opts default))))
+        (assoc :queue-opts default)
+        (assoc :strategy s))))
 
 (defn- build-processor
   [{id     :id

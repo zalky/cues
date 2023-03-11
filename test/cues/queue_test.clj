@@ -403,7 +403,8 @@
                              :err.proc/config   {:id         ::pipe-error
                                                  :in         ::q1
                                                  :out        ::q2
-                                                 :queue-opts {:queue-meta #{:q/t}}}
+                                                 :queue-opts {:queue-meta #{:q/t}}
+                                                 :strategy   ::q/exactly-once}
                              :err.proc/messages {::q1 {:x      1
                                                        :q/meta {:q/queue {::q1 {:q/t 1}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
@@ -412,7 +413,8 @@
                              :err.proc/config   {:id         ::pipe-error
                                                  :in         ::q1
                                                  :out        ::q2
-                                                 :queue-opts {:queue-meta #{:q/t}}}
+                                                 :queue-opts {:queue-meta #{:q/t}}
+                                                 :strategy   ::q/exactly-once}
                              :err.proc/messages {::q1 {:x      3
                                                        :q/meta {:q/queue {::q1 {:q/t 3}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 2}}}}]
@@ -573,9 +575,8 @@
                                                 ::tx {:q/t 2}}
                                       :tx/t    2}}]})))))
 
-(defmethod q/processor ::throw-interrupt
-  [{{:keys [done throw?]} :opts
-    :as process} {msg :in}]
+(defmethod q/processor ::interruptible
+  [{{:keys [done throw?]} :opts} {msg :in}]
   (try
     (when throw? (q/throw-interrupt!))
     (finally
@@ -583,15 +584,19 @@
         (deliver done true))))
   {:out msg})
 
-(defmethod q/processor ::done
+(defmethod q/processor ::done-x=2
   [{{:keys [done]} :opts} {msg :in}]
-  (deliver done true))
+  (when (= 2 (:x msg))
+    (deliver done true)))
 
 (t/deftest exactly-once-test
+  ;; First test throws an uncaught interrupt exception. Using
+  ;; the :default message semantics the message is delivered when the
+  ;; graph is restarted.
   (let [done (promise)]
     (let [g (->> {:id         ::graph
                   :processors [{:id ::s1}
-                               {:id   ::throw-interrupt
+                               {:id   ::interruptible
                                 :in   {:in ::s1}
                                 :out  {:out ::tx}
                                 :opts {:throw? true
@@ -599,25 +604,28 @@
                  (q/graph)
                  (q/start-graph!))]
       (q/send! g ::s1 {:x 1})
+      (q/send! g ::s1 {:x 2})
       (is (done? done))
+      (is (= (q/all-graph-messages g)
+             {::s1 [{:x 1} {:x 2}]
+              ::tx []}))
       (q/stop-graph! g)))
 
-  (let [done   (promise)
-        throw? (atom false)]
+  (let [done (promise)]
     (let [g (->> {:id         ::graph
                   :processors [{:id ::s1}
-                               {:id  ::throw-interrupt
+                               {:id  ::interruptible
                                 :in  {:in ::s1}
                                 :out {:out ::tx}}
-                               {:id   ::done
+                               {:id   ::done-x=2
                                 :in   {:in ::tx}
                                 :opts {:done done}}]}
                  (q/graph)
                  (q/start-graph!))]
       (is (done? done))
       (is (= (q/all-graph-messages g)
-             {::s1 [{:x 1}]
-              ::tx [{:x 1}]}))
+             {::s1 [{:x 1} {:x 2}]
+              ::tx [{:x 1} {:x 2}]}))
       (q/delete-graph-queues! g true))))
 
 (defn p-counter
