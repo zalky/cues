@@ -1,4 +1,4 @@
-(ns cues.queue.test
+(ns cues.test
   "Provides Cues test fixtures."
   (:require [cinch.core :as util]
             [cues.queue :as q]
