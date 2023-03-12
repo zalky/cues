@@ -12,13 +12,13 @@
   (atom {}))
 
 (defn lookup
-  [k xtor]
+  [id xtor]
   (letfn [(lookup* [c]
-            (if-not (get c k)
-              (assoc c k (xtor))
+            (if-not (get c id)
+              (assoc c id (xtor))
               c))]
-    (get (swap! cache lookup*) k)))
+    (get (swap! cache lookup*) id)))
 
 (defn purge-controller
-  [k]
-  (swap! cache dissoc k))
+  [id]
+  (swap! cache dissoc id))

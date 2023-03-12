@@ -2,7 +2,7 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.test :as t :refer [is]]
             [cues.queue :as q]
-            [cues.queue.test :as qt]
+            [cues.test :as qt]
             [cues.util :as cutil]
             [taoensso.timbre :as log]
 
@@ -11,7 +11,7 @@
 
 (t/use-fixtures :each
   (t/join-fixtures
-   [qt/with-deterministic-meta qt/with-warn]))
+   [qt/with-test-indices qt/with-warn]))
 
 (defn done?
   ([done]
@@ -628,7 +628,7 @@
       (is (= (q/all-graph-messages g)
              {::s1 [{:x 1} {:x 2}]
               ::tx [{:x 1} {:x 2}]}))
-      (q/delete-graph-queues! g true))))
+      (q/close-and-delete-graph! g true))))
 
 (defmethod q/processor ::done-counter
   [{{:keys [done counter n]} :opts} _]

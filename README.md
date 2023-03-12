@@ -112,7 +112,7 @@ It is really easy to get started with queue primitives:
 {:x 1}
 ```
 
-But building an entire system is also straightforward:
+But connecting queues into a system is also straightforward:
 
 ```clj
 (defmethod q/processor ::inc-x
@@ -145,6 +145,8 @@ But building an entire system is also straightforward:
 
 (q/send! g ::source {:x 1})
 (q/send! g ::source {:x 2})
+
+;; Messages propagate asynchronously through the graph... then:
 
 @example-db
 ;; =>

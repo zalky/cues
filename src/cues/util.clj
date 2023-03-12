@@ -25,7 +25,7 @@
    (or m {})
    (seq coll)))
 
-(defn prompt-delete-data!
+(defn prompt-delete!
   [p]
   (println "Delete data (yes/no)?" p)
   (case (read-line)

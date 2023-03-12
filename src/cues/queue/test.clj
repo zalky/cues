@@ -55,7 +55,7 @@
           i-1 (q/index* t-1)]
       (inc (- i i-1)))))
 
-(defn with-deterministic-meta
+(defn with-test-indices
   "A number of cues.queue functions are rebound to make queue indices
   easier to work with in unit tests. While ChronicleQueue indicies are
   deterministic, they have a complex relationship to the roll cycles
@@ -76,25 +76,18 @@
             q/add-attempt-hash (fn [_ msg] msg)]
     (f)))
 
-(defmacro with-graph-impl-and-delete
+(defmacro with-graph-and-delete
   [[sym :as binding] & body]
   `(let ~binding
      (let [~sym (-> ~sym
                     (util/assoc-nil :error-queue ::error)
                     (update :queue-opts util/assoc-nil ::q/default {:queue-meta #{:q/t}})
-                    (q/graph-impl)
+                    (q/graph)
                     (q/start-graph!))]
        (try
          ~@body
          (finally
-           (q/delete-graph-queues! ~sym true))))))
-
-(defmacro with-graph-and-delete
-  [[sym config] & body]
-  `(let ~[sym config]
-     (with-graph-impl-and-delete
-       [~sym (q/parse-graph ~sym)]
-       ~@body)))
+           (q/close-and-delete-graph! ~sym true))))))
 
 (defn simplify-exceptions
   [messages]

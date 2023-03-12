@@ -62,7 +62,7 @@
     (uuid? id)              (str id)
     (string? id)            id))
 
-(defn queue-path
+(defn- queue-path
   [{id              :id
     {p :queue-path} :opts}]
   {:pre [(not (absolute-path? p))
@@ -109,7 +109,7 @@
    :cycle-release-tasks [{:type         :delete
                           :after-cycles 10}]})
 
-(defn queue-opts
+(defn- queue-opts
   [{:keys [transient] :as opts}]
   (cond-> (-> opts
               (assoc :codec (codec))
@@ -206,7 +206,7 @@
    :queue         queue
    :appender-impl (app/make q)})
 
-(def closed?
+(def queue-closed?
   (comp queue/closed? :queue-impl))
 
 (defn set-direction
@@ -272,7 +272,7 @@
       (.close))
   t)
 
-(defn close!
+(defn close-queue!
   "Closes the given queue."
   [{id  :id
     q   :queue-impl
@@ -471,7 +471,7 @@
   (when unblock
     (remove-watch unblock id)))
 
-(defn running?
+(defn continue?
   [{unblock :unblock
     :as     obj}]
   (and (some? obj)
@@ -480,7 +480,7 @@
 
 (defn- try-read
   [tailer]
-  (when (running? tailer)
+  (when (continue? tailer)
     (loop [n 10000]
       (if (pos? n)
         (or (read tailer)
@@ -856,7 +856,7 @@
       (util/assoc-nil :error-fn (get-error-fn process))
       (update :fn wrap-processor-fn)))
 
-(defn- close-tailers
+(defn- close-tailers!
   [process]
   (doseq [t (:tailers process)]
     (close-tailer! t))
@@ -884,10 +884,10 @@
   [process]
   (try
     (recover-persist process)
-    (while (and (running? process)
+    (while (and (continue? process)
                 (processor-step process)))
     (finally
-      (close-tailers process))))
+      (close-tailers! process))))
 
 (def ^:private processor-loop
   (comp processor-loop* wrap-error-handling))
@@ -923,8 +923,7 @@
 (defn- start-join
   "Reads messages from a seq of input tailers, applies a processor fn,
   and writes the result to a single output appender. While queues can
-  be shared across threads, appenders and tailers cannot. They must be ;
-  created in the thread they are meant to be used in to avoid errors."
+  be shared across threads, appenders and tailers cannot."
   [{:keys [out] :as process} unblock try-queue]
   [(future
      (processor-loop
@@ -935,10 +934,9 @@
              :try-appender (appender try-queue))))])
 
 (defn- fork-run-fn!!
-  "Conditionally passes message from the join backing queue onto to the
-  fork output queue, iff a message for the output queue exists in the
-  map. Note the processor will only ever have one input queue (the
-  join backing queue) and one output queue."
+  "Conditionally passes message from one input queue, usually a backing
+  queue, onto to the fork output queue, iff a message for the output
+  queue exists in the map."
   [{{oid :id} :out
     [tailer]  :tailers
     :as       process}]
@@ -1027,7 +1025,7 @@
   (isa? (:type x) ::processor))
 
 (defmulti start-processor-impl
-  "Analogous to Kafka streams processor."
+  "Analogous to Kafka processors."
   :type)
 
 (defmethod start-processor-impl ::source
@@ -1062,7 +1060,7 @@
         (merge (start-impl process unblock start-imperative))
         (assoc :unblock unblock))))
 
-(defn coerce-cardinality-impl
+(defn- coerce-cardinality-impl
   [[t form]]
   (case t
     :many-1 (first form)
@@ -1259,7 +1257,7 @@
        (build-topology*)
        (assoc graph :topology)))
 
-(defn graph-impl
+(defn- build-graph
   [{p :processors :as config}]
   (let [p (map parse-processor-impl p)]
     (-> config
@@ -1315,7 +1313,7 @@
   [graph]
   (->> graph
        (collect-graph-queues)
-       (map close!)
+       (map close-queue!)
        (dorun))
   graph)
 
@@ -1327,20 +1325,20 @@
        (take-while some?)))
 
 (defn all-messages
-  "Careful, this eagerly gets all messages in the cue!"
+  "Eagerly gets all messages in the cue. Could be many!"
   [queue]
   (with-tailer [t queue]
     (doall (messages t))))
 
 (defn graph-messages
-  "Careful, this eagerly gets all messages in the queue!"
+  "Eagerly gets all messages in the queue. Could be many!"
   [{queues :queues} id]
   (-> queues
       (get id)
       (all-messages)))
 
 (defn all-graph-messages
-  "Careful, this eagerly gets all messages in the graph!"
+  "Eagerly gets all messages in the graph. Could be many!"
   [{queues :queues}]
   (let [queues* (vals queues)]
     (zipmap
@@ -1507,7 +1505,7 @@
                     :out  id
                     :opts opts}))))
 
-(defn parse-graph
+(defn- parse-graph
   [g]
   (-> (s*/parse ::graph g)
       (assoc :config g)
@@ -1517,7 +1515,7 @@
   [g]
   (-> g
       (parse-graph)
-      (graph-impl)))
+      (build-graph)))
 
 (defn topology
   [graph]
@@ -1538,33 +1536,34 @@
      (write a msg)
      (throw (ex-info "Could not find source" {:id source})))))
 
-;; Utility
+;; Data file management
 
 (defn delete-queue!
   "Deletes the queue data on disk, prompting by default.
 
-  Caution: failing to purge the queue controller when deleting a queue
-  will cause blocking to break the next time the queue is made."
+  Implementation note: must also purge the queue controller or
+  blocking will break the next time the queue is made."
   ([queue]
    (delete-queue! queue false))
-  ([{:keys [id]
-     :as   queue} force]
+  ([{:keys [id] :as queue} force]
    {:pre [(queue? queue)]}
    (let [p (queue-path queue)]
-     (when (or force (cutil/prompt-delete-data! p))
-       (close! queue)
+     (when (or force (cutil/prompt-delete! p))
+       (close-queue! queue)
        (controllers/purge-controller id)
-       (cutil/delete-file (io/file p))))))
+       (-> p
+           (io/file)
+           (cutil/delete-file))))))
 
-(defn delete-graph-queues!
-  "Stops the graph, and closes and deletes all queue data."
+(defn close-and-delete-graph!
+  "Closes the graph and all queues and deletes all queue data."
   ([g]
-   (delete-graph-queues! g false))
+   (close-and-delete-graph! g false))
   ([g force]
    (let [queues (collect-graph-queues g)]
      (when (or force (-> (count queues)
                          (str " queues")
-                         (cutil/prompt-delete-data!)))
+                         (cutil/prompt-delete!)))
        (stop-graph! g)
        (close-graph! g)
        (doseq [q queues]
@@ -1573,14 +1572,16 @@
 (defn delete-all-queues!
   "Deletes all queue data at either the provided or default path.
 
-  Caution: failing to purge the queue controller when deleting a queue
-  will cause blocking to break the next time the queue is made."
+  Implementation note: must also purge the queue controller or
+  blocking will break the next time the queue is made."
   ([]
    (delete-all-queues! queue-path-default))
   ([queue-path]
-   (when (cutil/prompt-delete-data! queue-path)
+   (when (cutil/prompt-delete! queue-path)
      (reset! controllers/cache {})
-     (cutil/delete-file (io/file queue-path)))))
+     (-> queue-path
+         (io/file)
+         (cutil/delete-file)))))
 
 (defn unused-queue-files
   [queue]
