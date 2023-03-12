@@ -351,6 +351,15 @@
   "Only rebind for testing!"
   last-read-index*)
 
+(defn- dissoc-hash
+  [msg]
+  (if-let [m (-> msg
+                 (:q/meta)
+                 (dissoc :q/hash)
+                 (not-empty))]
+    (assoc msg :q/meta m)
+    (dissoc msg :q/meta)))
+
 (defn- materialize-meta
   [id tailer {m :q/meta :as msg}]
   (let [tx? (true? (get m :tx/t))
@@ -361,9 +370,7 @@
       tx? (assoc-in [:q/meta :tx/t] t)
       t?  (assoc-in [:q/meta :q/queue id :q/t] t))))
 
-(defn read
-  "Reads message from tailer without blocking. Materializes metadata in
-  message."
+(defn- read-with-hash
   [{{id :id} :queue
     t-impl   :tailer-impl
     dirty    :dirty
@@ -373,6 +380,14 @@
     (reset! dirty false)
     (when msg
       (materialize-meta id tailer msg))))
+
+(defn read
+  "Reads message from tailer without blocking. Materializes metadata in
+  message."
+  [tailer]
+  (-> tailer
+      (read-with-hash)
+      (dissoc-hash)))
 
 (defn peek
   "Like read, but does not advance tailer."
@@ -691,7 +706,7 @@
   (with-tailer [t q]
     (when-not (= h (-> t
                        (to-index i)
-                       (read)
+                       (read-with-hash)
                        (:q/meta)
                        (:q/hash)))
       (->> (read try-tailer)
@@ -708,9 +723,10 @@
     :as        process}]
   (with-tailer [t q]
     (set-direction t :backward)
-    (let [msg (->> (last-index q)
+    (let [msg (->> q
+                   (last-index)
                    (to-index t)
-                   (read))]
+                   (read-with-hash))]
       (case (:q/type msg)
         :q.type.try/snapshot    (recover-snapshot process msg)
         :q.type.try/attempt     (recover-attempt t process msg)

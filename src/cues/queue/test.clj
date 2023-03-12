@@ -72,8 +72,7 @@
             q/last-index       last-index-from-1
             q/to-index         to-index-from-1
             q/index            index-from-1
-            q/written-index    written-index-from-1
-            q/add-attempt-hash (fn [_ msg] msg)]
+            q/written-index    written-index-from-1]
     (f)))
 
 (defmacro with-graph-and-delete
