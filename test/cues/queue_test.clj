@@ -13,172 +13,164 @@
   (t/join-fixtures
    [qt/with-deterministic-meta qt/with-warn]))
 
-(defn processor-fn
-  [{r-fn   :reduce-fn
-    m-fn   :map-fn
-    queues :to
-    :or    {m-fn identity}}]
-  {:pre [(fn? r-fn) (fn? m-fn)]}
-  (fn [_ msgs]
-    (let [result {:x (->> msgs
-                          vals
-                          (map (comp m-fn :x))
-                          (reduce r-fn))}]
-      (zipmap queues (repeat result)))))
-
 (defn done?
   ([done]
    (done? done 10000))
   ([done ms]
    (deref done ms false)))
 
-(defn x=
-  [done queue-id x]
-  (fn [_ msgs]
-    (when (= (get-in msgs [queue-id :x]) x)
-      (deliver done true))))
+(t/deftest parse-processor-impl-test
+  (let [parse (partial s/conform ::q/processor-impl)]
+    (is (= (parse {:id  ::processor
+                   :fn  identity
+                   :out ::out})
+           (parse {:id  ::processor
+                   :fn  identity
+                   :out [::out]})
+           [::q/source
+            {:id  ::processor
+             :fn  identity
+             :out ::out}]))
+    (is (= (parse {:id ::processor
+                   :fn identity
+                   :in ::in})
+           (parse {:id ::processor
+                   :fn identity
+                   :in [::in]})
+           [::q/sink
+            {:id ::processor
+             :fn identity
+             :in ::in}]))
+    (is (= (parse {:id  ::processor
+                   :fn  identity
+                   :in  ::in
+                   :out ::out})
+           (parse {:id  ::processor
+                   :fn  identity
+                   :in  [::in]
+                   :out [::out]})
+           [::q/join
+            {:id  ::processor
+             :fn  identity
+             :in  ::in
+             :out ::out}]))
+    (is (= (parse {:id  ::processor
+                   :fn  identity
+                   :in  ::in
+                   :out [::out-1 ::out-2]})
+           [::q/join-fork
+            {:id  ::processor
+             :fn  identity
+             :in  ::in
+             :out [::out-1 ::out-2]}]))))
 
-(t/deftest graph-parse-processor
-  (is (= (s/conform ::q/processor-impl {:id  ::processor
-                                        :fn  identity
-                                        :out ::out})
-         (s/conform ::q/processor-impl {:id  ::processor
-                                        :fn  identity
-                                        :out [::out]})
-         [::q/source
-          {:id  ::processor
-           :fn  identity
-           :out ::out}]))
-  (is (= (s/conform ::q/processor-impl {:id ::processor
-                                        :fn identity
-                                        :in ::in})
-         (s/conform ::q/processor-impl {:id ::processor
-                                        :fn identity
-                                        :in [::in]})
-         [::q/sink
-          {:id ::processor
-           :fn identity
-           :in ::in}]))
-  (is (= (s/conform ::q/processor-impl {:id  ::processor
-                                        :fn  identity
-                                        :in  ::in
-                                        :out ::out})
-         (s/conform ::q/processor-impl {:id  ::processor
-                                        :fn  identity
-                                        :in  [::in]
-                                        :out [::out]})
-         [::q/join
-          {:id  ::processor
-           :fn  identity
-           :in  ::in
-           :out ::out}]))
-  (is (= (s/conform ::q/processor-impl {:id  ::processor
-                                        :fn  identity
-                                        :in  ::in
-                                        :out [::out-1 ::out-2]})
-         [::q/join-fork
-          {:id  ::processor
-           :fn  identity
-           :in  ::in
-           :out [::out-1 ::out-2]}])))
+(defmethod q/processor ::map-reduce
+  [{{r-fn     :reduce-fn
+     m-fn     :map-fn
+     bindings :to
+     :or      {m-fn identity}} :opts} msgs]
+  (let [result {:x (->> (vals msgs)
+                        (map (comp m-fn :x))
+                        (reduce r-fn))}]
+    (zipmap bindings (repeat result))))
 
-(t/deftest graph-test-system
+(defmethod q/processor ::done
+  [{{:keys [done x-n]} :opts
+    system             :system} {{x :x} :in}]
+  (when (and (= x x-n) done)
+    (deliver done (or system true))))
+
+(t/deftest graph-system-test
   (let [done (promise)]
-    (qt/with-graph-impl-and-delete
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::source
-                        :out ::q1}
-                       {:id ::sink-system
-                        :fn (fn [{:keys [system]} {{x :x} ::q1}]
-                              (when (= x 1)
-                                (deliver done system)))
-                        :in ::q1}]
+          :processors [{:id ::s1}
+                       {:id   ::done
+                        :in   {:in ::s1}
+                        :opts {:done done
+                               :x-n  1}}]
           :system     {:component :running}}]
-      (q/send! g ::source {:x 1})
+      (q/send! g ::s1 {:x 1})
       (is (done? done))
       (is (= @done {:component :running})))))
 
-(t/deftest graph-test-source-sink
+(t/deftest graph-source-sink-test
   (let [done (promise)]
-    (qt/with-graph-impl-and-delete
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::source
-                        :out ::q1}
-                       {:id ::sink-source
-                        :fn (x= done ::q1 3)
-                        :in ::q1}]}]
-
-      (q/send! g ::source {:x 1})
-      (q/send! g ::source {:x 2})
-      (q/send! g ::source {:x 3})
+          :processors [{:id ::s1}
+                       {:id   ::done
+                        :in   {:in ::s1}
+                        :opts {:done done
+                               :x-n  3}}]}]
+      (q/send! g ::s1 {:x 1})
+      (q/send! g ::s1 {:x 2})
+      (q/send! g ::s1 {:x 3})
       (is (done? done))
       (is (= (q/all-graph-messages g)
              {::qt/error []
-              ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                          {:x 2 :q/meta {:q/queue {::q1 {:q/t 2}}}}
-                          {:x 3 :q/meta {:q/queue {::q1 {:q/t 3}}}}]})))))
+              ::s1       [{:x 1 :q/meta {:q/queue {::s1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:q/queue {::s1 {:q/t 2}}}}
+                          {:x 3 :q/meta {:q/queue {::s1 {:q/t 3}}}}]})))))
 
-(t/deftest graph-test-pipe
+(t/deftest graph-pipe-test
   (let [done (promise)]
-    (qt/with-graph-impl-and-delete
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::source
-                        :out ::q1}
-                       {:id  ::pipe
-                        :fn  (processor-fn
-                              {:reduce-fn +
-                               :map-fn    inc
-                               :to        [::q2]})
-                        :in  ::q1
-                        :out ::q2}
-                       {:id ::sink-pipe
-                        :fn (x= done ::q2 4)
-                        :in ::q2}]
-          :queue-opts {::q1 {:queue-meta #{:q/t :tx/t}}}}]
-      (q/send! g ::source {:x 1})
-      (q/send! g ::source {:x 2})
-      (q/send! g ::source {:x 3})
+          :processors [{:id ::s1}
+                       {:id   ::map-reduce
+                        :in   {:in ::s1}
+                        :out  {:out ::q1}
+                        :opts {:map-fn inc
+                               :to     [:out]}}
+                       {:id   ::done
+                        :in   {:in ::q1}
+                        :opts {:done done
+                               :x-n  4}}]
+          :queue-opts {::s1 {:queue-meta #{:q/t :tx/t}}}}]
+      (q/send! g ::s1 {:x 1})
+      (q/send! g ::s1 {:x 2})
+      (q/send! g ::s1 {:x 3})
       (is (done? done))
       (is (= (q/all-graph-messages g)
              {::qt/error []
-              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                          {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}
-                          {:x 3 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}}}}]
-              ::q2       [{:x 2 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}
-                                                           ::q2 {:q/t 1}}}}
-                          {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}
-                                                           ::q2 {:q/t 2}}}}
-                          {:x 4 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}
-                                                           ::q2 {:q/t 3}}}}]})))))
+              ::s1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::s1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:tx/t 2 :q/queue {::s1 {:q/t 2}}}}
+                          {:x 3 :q/meta {:tx/t 3 :q/queue {::s1 {:q/t 3}}}}]
+              ::q1       [{:x 2 :q/meta {:tx/t 1 :q/queue {::s1 {:q/t 1}
+                                                           ::q1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:tx/t 2 :q/queue {::s1 {:q/t 2}
+                                                           ::q1 {:q/t 2}}}}
+                          {:x 4 :q/meta {:tx/t 3 :q/queue {::s1 {:q/t 3}
+                                                           ::q1 {:q/t 3}}}}]})))))
 
-(t/deftest graph-test-alts
+(t/deftest graph-alts-test
   (let [d1   (promise)
         d2   (promise)
         d3   (promise)
         done (promise)]
-    (qt/with-graph-impl-and-delete
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
+          :processors [{:id ::s1}
+                       {:id ::s2}
                        {:id   ::alts
-                        :fn   (processor-fn
-                               {:reduce-fn +
-                                :map-fn    (fn [x]
-                                             (case x
-                                               1 (deliver d1 true)
-                                               2 (deliver d2 true)
-                                               3 (deliver d3 true)
-                                               true)
-                                             (inc x))
-                                :to        [::q3]})
-                        :in   [::q1 ::q2]
-                        :out  ::q3
-                        :opts {:alts true}}
-                       {:id ::sink-alts
-                        :fn (x= done ::q3 4)
-                        :in ::q3}]}]
+                        :fn   ::map-reduce
+                        :in   {:q1 ::s1
+                               :q2 ::s2}
+                        :out  {:out ::q1}
+                        :opts {:alts   true
+                               :map-fn (fn [x]
+                                         (case x
+                                           1 (deliver d1 true)
+                                           2 (deliver d2 true)
+                                           3 (deliver d3 true)
+                                           true)
+                                         (inc x))
+                               :to     [:out]}}
+                       {:id   ::done
+                        :in   {:in ::q1}
+                        :opts {:done done
+                               :x-n  4}}]}]
       (q/send! g ::s1 {:x 1})
       (is (done? d1))
       (q/send! g ::s2 {:x 2})
@@ -189,244 +181,257 @@
       (is (done? done))
       (is (= (q/all-graph-messages g)
              {::qt/error []
-              ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                          {:x 4 :q/meta {:q/queue {::q1 {:q/t 2}}}}]
-              ::q2       [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                          {:x 3 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3       [{:x 2 :q/meta {:q/queue {::q1 {:q/t 1}
-                                                   ::q3 {:q/t 1}}}}
-                          {:x 3 :q/meta {:q/queue {::q2 {:q/t 1}
-                                                   ::q3 {:q/t 2}}}}
-                          {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}
-                                                   ::q3 {:q/t 3}}}}
-                          {:x 5 :q/meta {:q/queue {::q1 {:q/t 2}
-                                                   ::q3 {:q/t 4}}}}]})))))
+              ::s1       [{:x 1 :q/meta {:q/queue {::s1 {:q/t 1}}}}
+                          {:x 4 :q/meta {:q/queue {::s1 {:q/t 2}}}}]
+              ::s2       [{:x 2 :q/meta {:q/queue {::s2 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::s2 {:q/t 2}}}}]
+              ::q1       [{:x 2 :q/meta {:q/queue {::s1 {:q/t 1}
+                                                   ::q1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::s2 {:q/t 1}
+                                                   ::q1 {:q/t 2}}}}
+                          {:x 4 :q/meta {:q/queue {::s2 {:q/t 2}
+                                                   ::q1 {:q/t 3}}}}
+                          {:x 5 :q/meta {:q/queue {::s1 {:q/t 2}
+                                                   ::q1 {:q/t 4}}}}]})))))
 
 (defn- preserve-meta
   [in out]
   (assoc out :q/meta (:q/meta in)))
 
-(t/deftest graph-test-imperative
-  (let [done (promise)]
-    (qt/with-graph-impl-and-delete
-      [g {:id         ::graph
-          :processors [{:id  ::source
-                        :out ::q1}
-                       {:id        ::pipe
-                        :fn        (fn [{{a ::q2} :appenders
-                                         :as      process} {in-msg ::q1}]
-                                     (->> {:x (inc (:x in-msg))}
-                                          (preserve-meta in-msg)
-                                          (q/write a)))
-                        :in        ::q1
-                        :appenders ::q2}
-                       {:id ::sink-pipe
-                        :fn (x= done ::q2 4)
-                        :in ::q2}]
-          :queue-opts {::q1 {:queue-meta #{:q/t :tx/t}}}}]
-      (q/send! g ::source {:x 1})
-      (q/send! g ::source {:x 2})
-      (q/send! g ::source {:x 3})
-      (is (done? done))
-      (is (= (q/all-graph-messages g)
-             {::qt/error []
-              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                          {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}
-                          {:x 3 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}}}}]
-              ::q2       [{:x 2 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}
-                                                           ::q2 {:q/t 1}}}}
-                          {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}
-                                                           ::q2 {:q/t 2}}}}
-                          {:x 4 :q/meta {:tx/t 3 :q/queue {::q1 {:q/t 3}
-                                                           ::q2 {:q/t 3}}}}]})))))
+(defmethod q/processor ::imperative
+  [{{:keys [a]} :appenders} {msg :in}]
+  (->> {:x (inc (:x msg))}
+       (preserve-meta msg)
+       (q/write a))
+  nil)
 
-(t/deftest graph-test-join
+(t/deftest graph-imperative-test
   (let [done (promise)]
-    (qt/with-graph-impl-and-delete
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
-                       {:id  ::join
-                        :fn  (processor-fn
-                              {:reduce-fn +
-                               :to        [::q3]})
-                        :in  [::q1 ::q2]
-                        :out ::q3}
-                       {:id ::sink-join
-                        :fn (x= done ::q3 7)
-                        :in ::q3}]
-          :queue-opts {::q3 {:queue-meta #{:q/t :tx/t}}}}]
+          :processors [{:id ::s1}
+                       {:id        ::imperative
+                        :in        {:in ::s1}
+                        :appenders {:a ::q1}}
+                       {:id   ::done
+                        :in   {:in ::q1}
+                        :opts {:done done
+                               :x-n  4}}]
+          :queue-opts {::s1 {:queue-meta #{:q/t :tx/t}}}}]
       (q/send! g ::s1 {:x 1})
+      (q/send! g ::s1 {:x 2})
       (q/send! g ::s1 {:x 3})
-      (q/send! g ::s2 {:x 2})
-      (q/send! g ::s2 {:x 4})
       (is (done? done))
       (is (= (q/all-graph-messages g)
              {::qt/error []
-              ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                          {:x 3 :q/meta {:q/queue {::q1 {:q/t 2}}}}]
-              ::q2       [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                          {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3       [{:x 3 :q/meta {:tx/t    1
-                                         :q/queue {::q1 {:q/t 1}
-                                                   ::q2 {:q/t 1}
-                                                   ::q3 {:q/t 1}}}}
-                          {:x 7 :q/meta {:tx/t    2
-                                         :q/queue {::q1 {:q/t 2}
-                                                   ::q2 {:q/t 2}
-                                                   ::q3 {:q/t 2}}}}]})))))
+              ::s1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::s1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:tx/t 2 :q/queue {::s1 {:q/t 2}}}}
+                          {:x 3 :q/meta {:tx/t 3 :q/queue {::s1 {:q/t 3}}}}]
+              ::q1       [{:x 2 :q/meta {:tx/t 1 :q/queue {::s1 {:q/t 1}
+                                                           ::q1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:tx/t 2 :q/queue {::s1 {:q/t 2}
+                                                           ::q1 {:q/t 2}}}}
+                          {:x 4 :q/meta {:tx/t 3 :q/queue {::s1 {:q/t 3}
+                                                           ::q1 {:q/t 3}}}}]})))))
 
-(t/deftest graph-test-join-fork
-  (let [q3-done (promise)
-        q4-done (promise)]
-    (qt/with-graph-impl-and-delete
+(t/deftest graph-join-test
+  (let [done (promise)]
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
-                       {:id  ::join-fork
-                        :fn  (processor-fn
-                              {:reduce-fn +
-                               :to        [::q3 ::q4]})
-                        :in  [::q1 ::q2]
-                        :out [::q3 ::q4]}
-                       {:id ::k1
-                        :fn (x= q3-done ::q3 7)
-                        :in ::q3}
-                       {:id ::k2
-                        :fn (x= q4-done ::q4 7)
-                        :in ::q4}]
+          :processors [{:id ::s1}
+                       {:id ::s2}
+                       {:id   ::map-reduce
+                        :in   {:in-1 ::s1
+                               :in-2 ::s2}
+                        :out  {:out ::q1}
+                        :opts {:reduce-fn +
+                               :map-fn    inc
+                               :to        [:out]}}
+                       {:id   ::done
+                        :in   {:in ::q1}
+                        :opts {:done done
+                               :x-n  9}}]
           :queue-opts {::q1 {:queue-meta #{:q/t :tx/t}}}}]
       (q/send! g ::s1 {:x 1})
       (q/send! g ::s1 {:x 3})
       (q/send! g ::s2 {:x 2})
       (q/send! g ::s2 {:x 4})
-      (is (and (done? q3-done)
-               (done? q4-done)))
+      (is (done? done))
       (is (= (q/all-graph-messages g)
              {::qt/error []
-              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                          {:x 3 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}]
-              ::q2       [{:x 2 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                          {:x 4 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3       [{:x 3 :q/meta {:tx/t    1
-                                         :q/queue {::q1 {:q/t 1}
-                                                   ::q2 {:q/t 1}
-                                                   ::q3 {:q/t 1}}}}
-                          {:x 7 :q/meta {:tx/t    2
-                                         :q/queue {::q1 {:q/t 2}
-                                                   ::q2 {:q/t 2}
-                                                   ::q3 {:q/t 2}}}}]
-              ::q4       [{:x 3 :q/meta {:tx/t    1
-                                         :q/queue {::q1 {:q/t 1}
-                                                   ::q2 {:q/t 1}
-                                                   ::q4 {:q/t 1}}}}
-                          {:x 7 :q/meta {:tx/t    2
-                                         :q/queue {::q1 {:q/t 2}
-                                                   ::q2 {:q/t 2}
-                                                   ::q4 {:q/t 2}}}}]})))))
+              ::s1       [{:x 1 :q/meta {:q/queue {::s1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::s1 {:q/t 2}}}}]
+              ::s2       [{:x 2 :q/meta {:q/queue {::s2 {:q/t 1}}}}
+                          {:x 4 :q/meta {:q/queue {::s2 {:q/t 2}}}}]
+              ::q1       [{:x 5 :q/meta {:tx/t    1
+                                         :q/queue {::s1 {:q/t 1}
+                                                   ::s2 {:q/t 1}
+                                                   ::q1 {:q/t 1}}}}
+                          {:x 9 :q/meta {:tx/t    2
+                                         :q/queue {::s1 {:q/t 2}
+                                                   ::s2 {:q/t 2}
+                                                   ::q1 {:q/t 2}}}}]})))))
 
-(t/deftest graph-test-join-fork-conditional
-  (let [q3-done (promise)
-        q4-done (promise)]
-    (qt/with-graph-impl-and-delete
+(t/deftest graph-join-fork-test
+  (let [q1-done (promise)
+        q2-done (promise)]
+    (qt/with-graph-and-delete
       [g {:id         ::graph
-          :processors [{:id  ::s1
-                        :out ::q1}
-                       {:id  ::s2
-                        :out ::q2}
+          :processors [{:id ::s1}
+                       {:id ::s2}
+                       {:id   ::map-reduce
+                        :opts {:reduce-fn +
+                               :to        [:out-1 :out-2]}
+                        :in   {:in-1 ::s1
+                               :in-2 ::s2}
+                        :out  {:out-1 ::q1
+                               :out-2 ::q2}}
+                       {:id   ::k1
+                        :fn   ::done
+                        :in   {:in ::q1}
+                        :opts {:done q1-done
+                               :x-n  7}}
+                       {:id   ::k2
+                        :fn   ::done
+                        :in   {:in ::q2}
+                        :opts {:done q2-done
+                               :x-n  7}}]
+          :queue-opts {::s1 {:queue-meta #{:q/t :tx/t}}}}]
+      (q/send! g ::s1 {:x 1})
+      (q/send! g ::s1 {:x 3})
+      (q/send! g ::s2 {:x 2})
+      (q/send! g ::s2 {:x 4})
+      (is (and (done? q1-done)
+               (done? q2-done)))
+      (is (= (q/all-graph-messages g)
+             {::qt/error []
+              ::s1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::s1 {:q/t 1}}}}
+                          {:x 3 :q/meta {:tx/t 2 :q/queue {::s1 {:q/t 2}}}}]
+              ::s2       [{:x 2 :q/meta {:q/queue {::s2 {:q/t 1}}}}
+                          {:x 4 :q/meta {:q/queue {::s2 {:q/t 2}}}}]
+              ::q1       [{:x 3 :q/meta {:tx/t    1
+                                         :q/queue {::s1 {:q/t 1}
+                                                   ::s2 {:q/t 1}
+                                                   ::q1 {:q/t 1}}}}
+                          {:x 7 :q/meta {:tx/t    2
+                                         :q/queue {::s1 {:q/t 2}
+                                                   ::s2 {:q/t 2}
+                                                   ::q1 {:q/t 2}}}}]
+              ::q2       [{:x 3 :q/meta {:tx/t    1
+                                         :q/queue {::s1 {:q/t 1}
+                                                   ::s2 {:q/t 1}
+                                                   ::q2 {:q/t 1}}}}
+                          {:x 7 :q/meta {:tx/t    2
+                                         :q/queue {::s1 {:q/t 2}
+                                                   ::s2 {:q/t 2}
+                                                   ::q2 {:q/t 2}}}}]})))))
+
+(defmethod q/processor ::join-fork-conditional
+  [_ msgs]
+  (let [n   (transduce (map :x) + (vals msgs))
+        msg {:x n}]
+    {:even (when (even? n) msg)
+     :odd  (when (odd? n) msg)}))
+
+(t/deftest graph-join-fork-conditional-test
+  (let [q1-done (promise)
+        q2-done (promise)]
+    (qt/with-graph-and-delete
+      [g {:id         ::graph
+          :processors [{:id ::s1}
+                       {:id ::s2}
                        {:id  ::join-fork-conditional
-                        :fn  (fn [_ msgs]
-                               (let [n   (transduce (map :x) + (vals msgs))
-                                     msg {:x n}]
-                                 {::q3 (when (even? n) msg)
-                                  ::q4 (when (odd? n) msg)}))
-                        :in  [::q1 ::q2]
-                        :out [::q3 ::q4]}
-                       {:id ::k1
-                        :fn (x= q3-done ::q3 2)
-                        :in ::q3}
-                       {:id ::k2
-                        :fn (x= q4-done ::q4 5)
-                        :in ::q4}]
-          :queue-opts {::q1 {:queue-meta #{:q/t :tx/t}}}}]
+                        :in  {:in-1 ::s1
+                              :in-2 ::s2}
+                        :out {:even ::q1
+                              :odd  ::q2}}
+                       {:id   ::k1
+                        :fn   ::done
+                        :in   {:in ::q1}
+                        :opts {:done q1-done
+                               :x-n  2}}
+                       {:id   ::k2
+                        :fn   ::done
+                        :in   {:in ::q2}
+                        :opts {:done q2-done
+                               :x-n  5}}]
+          :queue-opts {::s1 {:queue-meta #{:q/t :tx/t}}}}]
       (q/send! g ::s1 {:x 1})
       (q/send! g ::s1 {:x 2})
       (q/send! g ::s2 {:x 1})
       (q/send! g ::s2 {:x 3})
-      (is (and (done? q3-done)
-               (done? q4-done)))
+      (is (and (done? q1-done)
+               (done? q2-done)))
       (is (= (q/all-graph-messages g)
              {::qt/error []
-              ::q1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::q1 {:q/t 1}}}}
-                          {:x 2 :q/meta {:tx/t 2 :q/queue {::q1 {:q/t 2}}}}]
-              ::q2       [{:x 1 :q/meta {:q/queue {::q2 {:q/t 1}}}}
-                          {:x 3 :q/meta {:q/queue {::q2 {:q/t 2}}}}]
-              ::q3       [{:x 2 :q/meta {:tx/t    1
-                                         :q/queue {::q1 {:q/t 1}
-                                                   ::q2 {:q/t 1}
-                                                   ::q3 {:q/t 1}}}}]
-              ::q4       [{:x 5 :q/meta {:tx/t    2
-                                         :q/queue {::q1 {:q/t 2}
-                                                   ::q2 {:q/t 2}
-                                                   ::q4 {:q/t 1}}}}]})))))
+              ::s1       [{:x 1 :q/meta {:tx/t 1 :q/queue {::s1 {:q/t 1}}}}
+                          {:x 2 :q/meta {:tx/t 2 :q/queue {::s1 {:q/t 2}}}}]
+              ::s2       [{:x 1 :q/meta {:q/queue {::s2 {:q/t 1}}}}
+                          {:x 3 :q/meta {:q/queue {::s2 {:q/t 2}}}}]
+              ::q1       [{:x 2 :q/meta {:tx/t    1
+                                         :q/queue {::s1 {:q/t 1}
+                                                   ::s2 {:q/t 1}
+                                                   ::q1 {:q/t 1}}}}]
+              ::q2       [{:x 5 :q/meta {:tx/t    2
+                                         :q/queue {::s1 {:q/t 2}
+                                                   ::s2 {:q/t 2}
+                                                   ::q2 {:q/t 1}}}}]})))))
 
-(t/deftest graph-test-error
+(defmethod q/processor ::pipe-error
+  [_ {msg :in}]
+  (if (even? (:x msg))
+    {:out msg}
+    (throw (Exception. "Oops"))))
+
+(t/deftest graph-error-test
   ;; Suppress exception logging, just testing messaging
   (log/with-level :fatal
     (let [done (promise)]
-      (qt/with-graph-impl-and-delete
+      (qt/with-graph-and-delete
         [g {:id         ::graph
-            :processors [{:id  ::source
-                          :out ::q1}
+            :processors [{:id ::s1}
                          {:id  ::pipe-error
-                          :fn  (fn [_ {msg ::q1}]
-                                 (if (even? (:x msg))
-                                   {::q2 msg}
-                                   (throw (Exception. "Oops"))))
-                          :in  ::q1
-                          :out ::q2}
-                         {:id ::sink
-                          :fn (x= done ::q2 4)
-                          :in ::q2}]}]
-        (q/send! g ::source {:x 1})
-        (q/send! g ::source {:x 2})
-        (q/send! g ::source {:x 3})
-        (q/send! g ::source {:x 4})
+                          :in  {:in ::s1}
+                          :out {:out ::q1}}
+                         {:id   ::done
+                          :in   {:in ::q1}
+                          :opts {:done done
+                                 :x-n  4}}]}]
+        (q/send! g ::s1 {:x 1})
+        (q/send! g ::s1 {:x 2})
+        (q/send! g ::s1 {:x 3})
+        (q/send! g ::s1 {:x 4})
         (is (done? done))
         (is (= (-> (q/all-graph-messages g)
                    (update ::qt/error qt/simplify-exceptions))
                {::qt/error [{:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id         ::pipe-error
-                                                 :in         ::q1
-                                                 :out        ::q2
+                                                 :in         ::s1
+                                                 :out        ::q1
                                                  :queue-opts {:queue-meta #{:q/t}}
                                                  :strategy   ::q/exactly-once}
-                             :err.proc/messages {::q1 {:x      1
-                                                       :q/meta {:q/queue {::q1 {:q/t 1}}}}}
+                             :err.proc/messages {::s1 {:x      1
+                                                       :q/meta {:q/queue {::s1 {:q/t 1}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
                             {:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id         ::pipe-error
-                                                 :in         ::q1
-                                                 :out        ::q2
+                                                 :in         ::s1
+                                                 :out        ::q1
                                                  :queue-opts {:queue-meta #{:q/t}}
                                                  :strategy   ::q/exactly-once}
-                             :err.proc/messages {::q1 {:x      3
-                                                       :q/meta {:q/queue {::q1 {:q/t 3}}}}}
+                             :err.proc/messages {::s1 {:x      3
+                                                       :q/meta {:q/queue {::s1 {:q/t 3}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 2}}}}]
-                ::q1       [{:x 1 :q/meta {:q/queue {::q1 {:q/t 1}}}}
-                            {:x 2 :q/meta {:q/queue {::q1 {:q/t 2}}}}
-                            {:x 3 :q/meta {:q/queue {::q1 {:q/t 3}}}}
-                            {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}}}}]
-                ::q2       [{:x 2 :q/meta {:q/queue {::q1 {:q/t 2}
-                                                     ::q2 {:q/t 1}}}}
-                            {:x 4 :q/meta {:q/queue {::q1 {:q/t 4}
-                                                     ::q2 {:q/t 2}}}}]}))))))
+                ::s1       [{:x 1 :q/meta {:q/queue {::s1 {:q/t 1}}}}
+                            {:x 2 :q/meta {:q/queue {::s1 {:q/t 2}}}}
+                            {:x 3 :q/meta {:q/queue {::s1 {:q/t 3}}}}
+                            {:x 4 :q/meta {:q/queue {::s1 {:q/t 4}}}}]
+                ::q1       [{:x 2 :q/meta {:q/queue {::s1 {:q/t 2}
+                                                     ::q1 {:q/t 1}}}}
+                            {:x 4 :q/meta {:q/queue {::s1 {:q/t 4}
+                                                     ::q1 {:q/t 2}}}}]}))))))
 
 (t/deftest filter-messages-test
   (let [msg {::q {:q/topics {::t1 ::message
@@ -520,7 +525,7 @@
   {:q/type   :q.type.tx/command
    :q/topics topics})
 
-(t/deftest graph-test
+(t/deftest graph-filters-test
   (let [done (promise)
         db   (atom {})]
     (qt/with-graph-and-delete
@@ -585,11 +590,6 @@
         (deliver done true))))
   {:out msg})
 
-(defmethod q/processor ::done-x=2
-  [{{:keys [done]} :opts} {msg :in}]
-  (when (= 2 (:x msg))
-    (deliver done true)))
-
 (t/deftest exactly-once-test
   ;; First test throws an uncaught interrupt exception. Using
   ;; the :default message semantics the message is delivered when the
@@ -618,9 +618,10 @@
                                {:id  ::interruptible
                                 :in  {:in ::s1}
                                 :out {:out ::tx}}
-                               {:id   ::done-x=2
+                               {:id   ::done
                                 :in   {:in ::tx}
-                                :opts {:done done}}]}
+                                :opts {:done done
+                                       :x-n  2}}]}
                  (q/graph)
                  (q/start-graph!))]
       (is (done? done))
@@ -629,12 +630,10 @@
               ::tx [{:x 1} {:x 2}]}))
       (q/delete-graph-queues! g true))))
 
-(defn p-counter
-  [p n]
-  (let [c (atom 0)]
-    (fn [_ _]
-      (when (= n (swap! c inc))
-        (deliver p true)))))
+(defmethod q/processor ::done-counter
+  [{{:keys [done counter n]} :opts} _]
+  (when (= n (swap! counter inc))
+    (deliver done true)))
 
 (def stress-fixtures
   (t/join-fixtures [qt/with-warn]))
@@ -643,35 +642,40 @@
   [n]
   (stress-fixtures
    (fn []
-     (let [q3-done (promise)
-           q4-done (promise)
+     (let [q1-done (promise)
+           q2-done (promise)
            timeout (max (/ n 10) 1000)]
-       (qt/with-graph-impl-and-delete
+       (qt/with-graph-and-delete
          [g {:id         ::graph
-             :processors [{:id  ::s1
-                           :out ::q1}
-                          {:id  ::s2
-                           :out ::q2}
-                          {:id  ::join-fork
-                           :fn  (processor-fn
-                                 {:reduce-fn +
-                                  :to        [::q3 ::q4]})
-                           :in  [::q1 ::q2]
-                           :out [::q3 ::q4]}
-                          {:id ::k1
-                           :fn (p-counter q3-done n)
-                           :in ::q3}
-                          {:id ::k2
-                           :fn (p-counter q4-done n)
-                           :in ::q4}]}]
+             :processors [{:id ::s1}
+                          {:id ::s2}
+                          {:id   ::map-reduce
+                           :in   {:in-1 ::s1
+                                  :in-2 ::s2}
+                           :out  {:out-1 ::q1
+                                  :out-2 ::q2}
+                           :opts {:reduce-fn +
+                                  :to        [:out-1 :out-2]}}
+                          {:id   ::k1
+                           :fn   ::done-counter
+                           :in   {:in ::q1}
+                           :opts {:done    q1-done
+                                  :counter (atom 0)
+                                  :n       n}}
+                          {:id   ::k2
+                           :fn   ::done-counter
+                           :in   {:in ::q2}
+                           :opts {:done    q2-done
+                                  :counter (atom 0)
+                                  :n       n}}]}]
          {:success? (time
                       (do
                         (time
                           (dotimes [n n]
                             (q/send! g ::s1 {:x n})
                             (q/send! g ::s2 {:x n})))
-                        (and (done? q3-done timeout)
-                             (done? q4-done timeout))))
+                        (and (done? q1-done timeout)
+                             (done? q2-done timeout))))
           :counts   (->> g
                          (:queues)
                          (cutil/map-vals (comp count q/all-messages)))})))))
