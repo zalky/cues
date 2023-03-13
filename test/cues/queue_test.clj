@@ -647,6 +647,7 @@
            timeout (max (/ n 10) 1000)]
        (qt/with-graph-and-delete
          [g {:id         ::graph
+             :queue-opts {::q/default {:queue-meta false}}
              :processors [{:id ::s1}
                           {:id ::s2}
                           {:id   ::map-reduce
@@ -706,11 +707,11 @@
                      Overhead used : 2.035620 ns"
 
   (qt/stress-test 1000000)
-  "Elapsed time: 7153.911291 msecs"
-  "Elapsed time: 23936.871375 msecs"
+  "Elapsed time: 5766.9555 msecs"
+  "Elapsed time: 32252.300833 msecs"
   {:success? true
-   :counts   {::qt/error 0
-              ::q1       1000000
-              ::q2       1000000
-              ::q3       1000000
-              ::q4       1000000}})
+   :counts   {:cues.test/error    0
+              :cues.queue-test/s1 1000000
+              :cues.queue-test/s2 1000000
+              :cues.queue-test/q1 1000000
+              :cues.queue-test/q2 1000000}})
