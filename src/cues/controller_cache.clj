@@ -19,6 +19,6 @@
               c))]
     (get (swap! cache lookup*) id)))
 
-(defn purge-controller
+(defn purge
   [id]
   (swap! cache dissoc id))

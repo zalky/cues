@@ -215,30 +215,30 @@
   must do a read before you can measure the index again via
   `cues.queue/index`. This is an artifact of ChronicleQueue
   behaviour."
-  [t dir]
-  (-> t
-      (:tailer-impl)
-      (tail/set-direction! dir))
-  (reset! (:dirty t) true)
-  t)
+  [{t   :tailer-impl
+    d   :dirty
+    :as tailer} dir]
+  (tail/set-direction! t dir)
+  (reset! d true)
+  tailer)
 
 (defn to-end
   "Moves the tailer to the end of the queue."
-  [t]
-  (-> t
-      (:tailer-impl)
-      (tail/to-end!))
-  (reset! (:dirty t) false)
-  t)
+  [{t   :tailer-impl
+    d   :dirty
+    :as tailer}]
+  (tail/to-end! t)
+  (reset! d false)
+  tailer)
 
 (defn to-start
   "Moves the tailer to the beginning of the queue."
-  [t]
-  (-> t
-      (:tailer-impl)
-      (tail/to-start!))
-  (reset! (:dirty t) false)
-  t)
+  [{t   :tailer-impl
+    d   :dirty
+    :as tailer}]
+  (tail/to-start! t)
+  (reset! d false)
+  tailer)
 
 (defn index*
   "Gets the index at the tailer's current position. ChronicleQueue
@@ -246,13 +246,13 @@
   until AFTER the next read. Cues guards against this edge case by
   throwing an error if you attempt to take the index before the next
   read."
-  [t]
-  (if-not @(:dirty t)
-    (-> t
-        (:tailer-impl)
-        (tail/index))
+  [{t   :tailer-impl
+    d   :dirty
+    :as tailer}]
+  (if-not @d
+    (tail/index t)
     (-> "Cannot take the index of a tailer after setting direction without first doing a read"
-        (ex-info t)
+        (ex-info tailer)
         (throw))))
 
 (def ^:dynamic index
@@ -265,12 +265,12 @@
 
 (defn close-tailer!
   "Closes the given tailer."
-  [t]
-  (-> t
+  [tailer]
+  (-> tailer
       (:tailer-impl)
       (tail/underlying-tailer)
       (.close))
-  t)
+  tailer)
 
 (defn close-queue!
   "Closes the given queue."
@@ -278,17 +278,19 @@
     q   :queue-impl
     :as queue}]
   {:pre [(queue? queue)]}
-  (controllers/purge-controller id)
+  (controllers/purge id)
   (queue/close! q)
   (System/runFinalization))
 
 (defn to-index*
-  [t i]
+  [{t   :tailer-impl
+    d   :dirty
+    :as tailer} i]
   (if (zero? i)
-    (tail/to-start! (:tailer-impl t))
-    (tail/to-index! (:tailer-impl t) i))
-  (reset! (:dirty t) false)
-  t)
+    (tail/to-start! t)
+    (tail/to-index! t i))
+  (reset! d false)
+  tailer)
 
 (def ^:dynamic to-index
   "Only rebind for testing!"
@@ -1597,7 +1599,7 @@
    (let [p (queue-path queue)]
      (when (or force (cutil/prompt-delete! p))
        (close-queue! queue)
-       (controllers/purge-controller id)
+       (controllers/purge id)
        (-> p
            (io/file)
            (cutil/delete-file))))))
