@@ -80,6 +80,11 @@
   (when (and (= x x-n) done)
     (deliver done (or system true))))
 
+(defmethod q/processor ::done-counter
+  [{{:keys [done counter n]} :opts} _]
+  (when (= n (swap! counter inc))
+    (deliver done true)))
+
 (t/deftest graph-system-test
   (let [done (promise)]
     (qt/with-graph-and-delete
@@ -167,10 +172,11 @@
                                            true)
                                          (inc x))
                                :to     [:out]}}
-                       {:id   ::done
+                       {:id   ::done-counter
                         :in   {:in ::q1}
-                        :opts {:done done
-                               :x-n  4}}]}]
+                        :opts {:done    done
+                               :counter (atom 0)
+                               :n       4}}]}]
       (q/send! g ::s1 {:x 1})
       (is (done? d1))
       (q/send! g ::s2 {:x 2})
@@ -629,11 +635,6 @@
              {::s1 [{:x 1} {:x 2}]
               ::tx [{:x 1} {:x 2}]}))
       (q/close-and-delete-graph! g true))))
-
-(defmethod q/processor ::done-counter
-  [{{:keys [done counter n]} :opts} _]
-  (when (= n (swap! counter inc))
-    (deliver done true)))
 
 (def stress-fixtures
   (t/join-fixtures [qt/with-warn]))

@@ -64,10 +64,10 @@ On each processor step:
 
    If the processor output bindings are `nil`, in other words if there
    is _no message_ to be written for that processor step, then the
-   type of the attempt should be changed to `:q.type.try/nil-attempt`.
+   type of the attempt should be changed to `:q.type.try/attempt-nil`.
 
    If the processor is attempting to write to the _error queue_, then
-   the type of the attempt should be `:q.type.try/error-attempt`.
+   the type of the attempt should be `:q.type.try/attempt-error`.
 
 7. Write the attempt map to a backing queue
 
@@ -89,10 +89,10 @@ On processor start:
    b) If there is _both an attempt map and a snapshot map_ then,
       depending on the attempt map type:
       i)   `:q.type.try/attempt`: proceed to step 2
-      ii)  `:q.type.try/nil-attempt`: get the hash of the input
+      ii)  `:q.type.try/attempt-nil`: get the hash of the input
            messages and the hash in the attempt map, and proceed to
            step 5. 
-      iii) `:q.type.try/error-attempt`: proceed to step 2, but instead
+      iii) `:q.type.try/attempt-error`: proceed to step 2, but instead
            of the output queue, read from the error queue.
 
 2. On the output queue (or error queue), read back the message at the

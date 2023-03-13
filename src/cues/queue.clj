@@ -301,7 +301,7 @@
     `(let ~(->> q
                 (map #(list `tailer %))
                 (interleave b)
-                vec)
+                (vec))
        (try
          ~@body
          (finally
@@ -580,7 +580,7 @@
   [process]
   (if (= (:id (:error-queue process))
          (:id (:queue (:appender process))))
-    :q.type.try/error-attempt
+    :q.type.try/attempt-error
     :q.type.try/attempt))
 
 (defn- attempt-map
@@ -591,7 +591,7 @@
 
 (defn- nil-attempt-map
   [attempt-hash]
-  {:q/type :q.type.try/nil-attempt
+  {:q/type :q.type.try/attempt-nil
    :q/hash attempt-hash})
 
 (defmethod persistent-snapshot ::exactly-once
@@ -717,14 +717,14 @@
       (->> (read try-tailer)
            (recover-snapshot process)))))
 
-(defn- recover-error-attempt
+(defn- recover-attempt-error
   [try-tailer process msg]
   (let [p (->> (:error-queue process)
                (appender)
                (assoc process :appender))]
     (recover-attempt try-tailer p msg)))
 
-(defn- recover-nil-attempt
+(defn- recover-attempt-nil
   [try-tailer process {h :q/hash}]
   (let [snapshot (read try-tailer)]
     (when-not (= h (hash snapshot))
@@ -735,8 +735,8 @@
   (case (:q/type msg)
     :q.type.try/snapshot      (recover-snapshot process msg)
     :q.type.try/attempt       (recover-attempt try-tailer process msg)
-    :q.type.try/error-attempt (recover-error-attempt try-tailer process msg)
-    :q.type.try/nil-attempt   (recover-nil-attempt try-tailer process msg)
+    :q.type.try/attempt-error (recover-attempt-error try-tailer process msg)
+    :q.type.try/attempt-nil   (recover-attempt-nil try-tailer process msg)
     nil))
 
 (defmethod persistent-recover ::exactly-once
