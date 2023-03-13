@@ -7,11 +7,11 @@
             [cues.log]))
 
 (defmethod q/processor ::inc-x
-  [_ {msg :in}]
-  {:out (update msg :x inc)})
+  [_ {msg :input}]
+  {:output (update msg :x inc)})
 
 (defmethod q/processor ::store-x
-  [{{db :db} :opts} {msg :in}]
+  [{{db :db} :opts} {msg :input}]
   (swap! db assoc (:x msg) (dissoc msg :q/meta)))
 
 (defn graph-spec
@@ -19,13 +19,13 @@
   {:id          ::example
    :source      ::source
    :error-queue ::error
-   :queue-opts  {::source {:queue-meta #{:tx/t}}}
+   :queue-opts  {::tx {:queue-meta #{:tx/t}}}
    :processors  [{:id ::source}
                  {:id  ::inc-x
-                  :in  {:in ::source}
-                  :out {:out ::tx}}
+                  :in  {:input ::source}
+                  :out {:output ::tx}}
                  {:id   ::store-x
-                  :in   {:in ::tx}
+                  :in   {:input ::tx}
                   :opts {:db db}}]})
 
 (defonce db
