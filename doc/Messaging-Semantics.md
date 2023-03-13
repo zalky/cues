@@ -54,7 +54,7 @@ On each processor step:
 5. Open a document transaction on the output queue
 
 6. Get the index of the potential write, add this to the attempt
-   map. Also add the hash of the snapshot map in the attempt map
+   map. Also add the hash of the snapshot map in the attempt map:
 
    ```clj
    {:q/type              :q.type.try/attempt
@@ -65,6 +65,9 @@ On each processor step:
    If the processor output bindings are `nil`, in other words if there
    is _no message_ to be written for that processor step, then the
    type of the attempt should be changed to `:q.type.try/nil-attempt`.
+
+   If the processor is attempting to write to the _error queue_, then
+   the type of the attempt should be `:q.type.try/error-attempt`.
 
 7. Write the attempt map to a backing queue
 
@@ -85,13 +88,15 @@ On processor start:
    a) If there is _no attempt map_, and only a snapshot map, skip to 5b
    b) If there is _both an attempt map and a snapshot map_ then,
       depending on the attempt map type:
-      i)  `:q.type.try/attempt`: proceed to step 2
-      ii) `:q.type.try/nil-attempt`: get the hash of the input
-          messages and the hash in the attempt map, and proceed to
-          step 5. 
+      i)   `:q.type.try/attempt`: proceed to step 2
+      ii)  `:q.type.try/nil-attempt`: get the hash of the input
+           messages and the hash in the attempt map, and proceed to
+           step 5. 
+      iii) `:q.type.try/error-attempt`: proceed to step 2, but instead
+           of the output queue, read from the error queue.
 
-2. On the output queue, read back the message at the write index in
-   the attempt map
+2. On the output queue (or error queue), read back the message at the
+   write index in the attempt map
 
 3. Get the hash in the message metadata and the hash in the attempt
    map

@@ -547,26 +547,27 @@
           (some->> (try-read t)
                    (vector t))))))
 
-(defmulti snapshot-persist
+(defmulti persistent-snapshot
   "Persists processor tailer indices to a backing queue. Called once
-  before each processor step. Taken together, snapshot-persist,
-  attempt-persist, and recover-persist implement message delivery
-  semantics in Cues processors."
+  before each processor step. Taken together, persistent-snapshot,
+  persistent-attempt, and persistent-recover implement message
+  delivery semantics in Cues processors."
   (comp :strategy :config))
 
-(defmulti attempt-persist
+(defmulti persistent-attempt
   "Persists message to processor output queues, as well as attempt data
   to backing queue. Called once during each processor step. Taken
-  together, snapshot-persist, attempt-persist, and recover-persist
-  implement message delivery semantics in Cues processors."
+  together, persistent-snapshot, persistent-attempt, and
+  persistent-recover implement message delivery semantics in Cues
+  processors."
   (fn [process _]
     (-> process :config :strategy)))
 
-(defmulti recover-persist
+(defmulti persistent-recover
   "Recovers processor tailer indices from backing queue once on
-  processor start. Taken together, snapshot-persist, attempt-persist,
-  and recover-persist implement message delivery semantics in Cues
-  processors."
+  processor start. Taken together, persistent-snapshot,
+  persistent-attempt, and persistent-recover implement message
+  delivery semantics in Cues processors."
   (comp :strategy :config))
 
 (defn- snapshot-map
@@ -575,9 +576,16 @@
    :q.try/proc-id        id
    :q.try/tailer-indices tailer-indices})
 
+(defn- attempt-type
+  [process]
+  (if (= (:id (:error-queue process))
+         (:id (:queue (:appender process))))
+    :q.type.try/error-attempt
+    :q.type.try/attempt))
+
 (defn- attempt-map
-  [attempt-hash msg-index]
-  {:q/type              :q.type.try/attempt
+  [process attempt-hash msg-index]
+  {:q/type              (attempt-type process)
    :q/hash              attempt-hash
    :q.try/message-index msg-index})
 
@@ -586,7 +594,7 @@
   {:q/type :q.type.try/nil-attempt
    :q/hash attempt-hash})
 
-(defmethod snapshot-persist ::exactly-once
+(defmethod persistent-snapshot ::exactly-once
   [{uid     :uid
     try-a   :try-appender
     tailers :tailers
@@ -629,7 +637,8 @@
 (defn- wrap-attempt
   [{a     :appender
     try-a :try-appender
-    h     :snapshot-hash}]
+    h     :snapshot-hash
+    :as   process}]
   (fn [_ msg]
     (let [write-a (appender-obj a)
           msg*    (encode-msg a msg h)]
@@ -641,7 +650,7 @@
               (.bytes msg*))
           (let [i (.index doc)]
             (->> i
-                 (attempt-map h)
+                 (attempt-map process h)
                  (write try-a))
             i)
           (catch Throwable e
@@ -650,10 +659,7 @@
 
 (defn- full-attempt
   [{a     :appender
-    try-a :try-appender
     :as   process} msg]
-  {:pre [(appender? a)
-         (appender? try-a)]}
   (let [f (-> process
               (wrap-attempt)
               (wrap-write))
@@ -669,7 +675,7 @@
        (nil-attempt-map)
        (write try-a)))
 
-(defmethod attempt-persist ::exactly-once
+(defmethod persistent-attempt ::exactly-once
   [process msg]
   (if (and (:appender process) msg)
     (full-attempt process msg)
@@ -696,13 +702,12 @@
                    (:q.try/tailer-indices)
                    (get tid))]
       (to-index t i)
-      (-> "Topology changed, cannot recover tailer"
-          (log/warn tid)))))
+      (log/warn "Topology changed, cannot recover tailer" tid))))
 
 (defn- recover-attempt
   [try-tailer {{q :queue} :appender
-               :as        process} {h :q/hash
-                                    i :q.try/message-index}]
+               :as        process} {i :q.try/message-index
+                                    h :q/hash}]
   (with-tailer [t q]
     (when-not (= h (-> t
                        (to-index i)
@@ -712,26 +717,43 @@
       (->> (read try-tailer)
            (recover-snapshot process)))))
 
-(defn- recover-attempt-nil
+(defn- recover-error-attempt
+  [try-tailer process msg]
+  (let [p (->> (:error-queue process)
+               (appender)
+               (assoc process :appender))]
+    (recover-attempt try-tailer p msg)))
+
+(defn- recover-nil-attempt
   [try-tailer process {h :q/hash}]
   (let [snapshot (read try-tailer)]
     (when-not (= h (hash snapshot))
       (recover-snapshot process snapshot))))
 
-(defmethod recover-persist ::exactly-once
+(defn- recover
+  [try-tailer process msg]
+  (case (:q/type msg)
+    :q.type.try/snapshot      (recover-snapshot process msg)
+    :q.type.try/attempt       (recover-attempt try-tailer process msg)
+    :q.type.try/error-attempt (recover-error-attempt try-tailer process msg)
+    :q.type.try/nil-attempt   (recover-nil-attempt try-tailer process msg)
+    nil))
+
+(defmethod persistent-recover ::exactly-once
   [{{q :queue} :try-appender
     :as        process}]
-  (with-tailer [t q]
-    (set-direction t :backward)
-    (let [msg (->> q
-                   (last-index)
-                   (to-index t)
-                   (read-with-hash))]
-      (case (:q/type msg)
-        :q.type.try/snapshot    (recover-snapshot process msg)
-        :q.type.try/attempt     (recover-attempt t process msg)
-        :q.type.try/attempt-nil (recover-attempt-nil t process msg)
-        true))))
+  (try
+    (with-tailer [t q]
+      (set-direction t :backward)
+      (some->> q
+               (last-index)
+               (to-index t)
+               (read-with-hash)
+               (recover t process)))
+    (catch InterruptedException e false)
+    (catch Throwable e
+      (log/error e "Could not recover tailers")
+      false)))
 
 (defn- snapshot-mem
   "Record tailer indices for unblock recovery."
@@ -845,14 +867,13 @@
 
 (defn- get-error-fn
   [{:keys [error-queue]}]
-  (if error-queue
-    (let [a (appender error-queue)]
-      (fn [process e]
+  (let [a (some-> error-queue appender)]
+    (fn [process e]
+      (let [p (assoc process :appender a)]
         (log-processor-error process e)
         (->> (err/error e)
              (ex-data)
-             (write a))))
-    log-processor-error))
+             (persistent-attempt p))))))
 
 (defn- processor-error
   [{config :config} msgs]
@@ -882,24 +903,34 @@
                 (vals))]
     (close-tailer! t)))
 
+(defn- processor-snapshot
+  [process]
+  (try
+    (-> process
+        (snapshot-mem)
+        (persistent-snapshot))
+    (catch InterruptedException e false)
+    (catch Throwable e
+      (log/error e "Could not snapshot tailers")
+      false)))
+
 (defn- processor-step
   [{:keys [run-fn error-fn]
     :or   {run-fn run-fn!!}
     :as   process}]
   {:pre [error-fn run-fn]}
-  (try
-    (let [p (-> process
-                (snapshot-mem)
-                (snapshot-persist))]
-      (attempt-persist p (run-fn p)))
-    (catch InterruptedException e false)
-    (catch Throwable e
-      (error-fn process e) true)))
+  (let [p (processor-snapshot process)]
+    (try
+      (persistent-attempt p (run-fn p))
+      (catch InterruptedException e false)
+      (catch Throwable e
+        (error-fn p e)
+        true))))
 
 (defn- processor-loop*
   [process]
   (try
-    (recover-persist process)
+    (persistent-recover process)
     (while (and (continue? process)
                 (processor-step process)))
     (finally
