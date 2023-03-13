@@ -596,45 +596,96 @@
         (deliver done true))))
   {:out msg})
 
+(defn- try-messages
+  [g]
+  (->> (:processors g)
+       (vals)
+       (mapcat :try-queues)
+       (map (juxt :id q/all-messages))
+       (into {})))
+
 (t/deftest exactly-once-test
   ;; First test throws an uncaught interrupt exception. Using
   ;; the :default message semantics the message is delivered when the
   ;; graph is restarted.
-  (let [done (promise)]
-    (let [g (->> {:id         ::graph
-                  :processors [{:id ::s1}
-                               {:id   ::interruptible
-                                :in   {:in ::s1}
-                                :out  {:out ::tx}
-                                :opts {:throw? true
-                                       :done   done}}]}
-                 (q/graph)
-                 (q/start-graph!))]
-      (q/send! g ::s1 {:x 1})
-      (q/send! g ::s1 {:x 2})
-      (is (done? done))
-      (is (= (q/all-graph-messages g)
-             {::s1 [{:x 1} {:x 2}]
-              ::tx []}))
-      (q/stop-graph! g)))
+  (let [i-id   "cues.queue-test.graph.cues.queue-test.interruptible"
+        i-t-id "cues.queue-test.graph.cues.queue-test.interruptible.cues.queue-test.s1"
+        d-id   "cues.queue-test.graph.cues.queue-test.done"
+        d-t-id "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.tx"]
+    (let [done (promise)]
+      (let [g (->> {:id         ::graph
+                    :processors [{:id ::s1}
+                                 {:id   ::interruptible
+                                  :in   {:in ::s1}
+                                  :out  {:out ::tx}
+                                  :opts {:throw? true
+                                         :done   done}}]}
+                   (q/graph)
+                   (q/start-graph!))]
+        (q/send! g ::s1 {:x 1})
+        (q/send! g ::s1 {:x 2})
+        (is (done? done))
+        (is (= (q/all-graph-messages g)
+               {::s1 [{:x 1} {:x 2}]
+                ::tx []}))
+        (is (= (try-messages g)
+               {i-id
+                [{:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        i-id
+                  :q.try/tailer-indices {i-t-id 1}}]}))
+        (q/stop-graph! g)))
 
-  (let [done (promise)]
-    (let [g (->> {:id         ::graph
-                  :processors [{:id ::s1}
-                               {:id  ::interruptible
-                                :in  {:in ::s1}
-                                :out {:out ::tx}}
-                               {:id   ::done
-                                :in   {:in ::tx}
-                                :opts {:done done
-                                       :x-n  2}}]}
-                 (q/graph)
-                 (q/start-graph!))]
-      (is (done? done))
-      (is (= (q/all-graph-messages g)
-             {::s1 [{:x 1} {:x 2}]
-              ::tx [{:x 1} {:x 2}]}))
-      (q/close-and-delete-graph! g true))))
+    (let [done (promise)]
+      (let [g (->> {:id         ::graph
+                    :processors [{:id ::s1}
+                                 {:id  ::interruptible
+                                  :in  {:in ::s1}
+                                  :out {:out ::tx}}
+                                 {:id   ::done
+                                  :in   {:in ::tx}
+                                  :opts {:done done
+                                         :x-n  2}}]}
+                   (q/graph)
+                   (q/start-graph!))]
+        (is (done? done))
+        (is (= (q/all-graph-messages g)
+               {::s1 [{:x 1} {:x 2}]
+                ::tx [{:x 1} {:x 2}]}))
+        (is (= (try-messages g)
+               {i-id
+                [{:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        i-id
+                  :q.try/tailer-indices {i-t-id 1}}
+                 {:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        i-id
+                  :q.try/tailer-indices {i-t-id 1}}
+                 {:q/type              :q.type.try/attempt
+                  :q/hash              -792570518
+                  :q.try/message-index 83446919593984}
+                 {:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        i-id
+                  :q.try/tailer-indices {i-t-id 2}}
+                 {:q/type              :q.type.try/attempt
+                  :q/hash              177303862
+                  :q.try/message-index 83446919593985}
+                 {:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        i-id
+                  :q.try/tailer-indices {i-t-id 3}}]
+                d-id
+                [{:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        d-id
+                  :q.try/tailer-indices {d-t-id 1}}
+                 {:q/type :q.type.try/attempt-nil
+                  :q/hash 790974922}
+                 {:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        d-id
+                  :q.try/tailer-indices {d-t-id 2}}
+                 {:q/type :q.type.try/attempt-nil
+                  :q/hash -43364442}
+                 {:q/type               :q.type.try/snapshot
+                  :q.try/proc-id        d-id
+                  :q.try/tailer-indices {d-t-id 3}}]}))
+        (q/close-and-delete-graph! g true)))))
 
 (def stress-fixtures
   (t/join-fixtures [qt/with-warn]))

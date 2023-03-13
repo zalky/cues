@@ -16,7 +16,7 @@
     (let [i   (q/index* tailer)
           _   (q/to-start t-1)
           i-1 (q/index* t-1)]
-      (inc (- i i-1)))))
+      (if (zero? i) 1 (inc (- i i-1))))))
 
 (defn last-index-from-1
   "For testing purposes only."
@@ -25,7 +25,7 @@
     (let [i   (q/last-index* queue)
           _   (q/to-start t-1)
           i-1 (q/index* t-1)]
-      (inc (- i i-1)))))
+      (if (zero? i) 1 (inc (- i i-1))))))
 
 (defn last-read-index-from-1
   "For testing purposes only."
@@ -34,7 +34,7 @@
     (let [i   (q/last-read-index* tailer)
           _   (q/to-start t-1)
           i-1 (q/index* t-1)]
-      (inc (- i i-1)))))
+      (if (zero? i) 1 (inc (- i i-1))))))
 
 (defn to-index-from-1
   "For testing purposes only."
