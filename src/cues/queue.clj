@@ -882,7 +882,7 @@
              (result-fn process))))
     (recover-mem process)))
 
-(defn- log-processor-error
+(defn log-processor-error
   [{{:keys [id in out]
      :or   {in  "source"
             out "sink"}} :config} e]

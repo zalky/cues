@@ -599,15 +599,19 @@
                                                 ::tx {:q/t 2}}
                                       :tx/t    2}}]})))))
 
-(defmethod q/processor ::interruptible
+;; The tests beyond this point deal with implementation details of
+;; persistence and message delivery semantics. Specifically they lift
+;; processor backing queues into the graph so that they can be
+;; inspected and managed concurrently. For this reason they should not
+;; be taken as examples of normal usage.
+
+(defmethod q/processor ::interrupt
   [{{:keys [done interrupt?]} :opts} {msg :in}]
-  (try
-    (when interrupt?
-      (q/throw-interrupt!))
-    {:out msg}
-    (finally
-      (when done
-        (deliver done true)))))
+  (when interrupt?
+    (try
+      (q/throw-interrupt!)
+      (finally (deliver done true))))
+  {:out msg})
 
 (defn- try-messages
   [g]
@@ -617,20 +621,21 @@
        (map (juxt :id q/all-messages))
        (into {})))
 
-(t/deftest exactly-once-test
-  ;; The first time the graph is started the processor throws an
-  ;; interrupt exception. Without exactly once semantics the first
-  ;; message would be lost. Instead it is delivered when the graph is
-  ;; restarted.
-  (let [p-id  "cues.queue-test.graph.cues.queue-test.interruptible"
-        p-tid "cues.queue-test.graph.cues.queue-test.interruptible.cues.queue-test.s1"
+(t/deftest exactly-once-processor-interrupt-test
+  ;; The processor :fn throws an unhandled interrupt during the method
+  ;; execution. The processor quits due to the unhandled
+  ;; interrupt. Without exactly once semantics the first message would
+  ;; be lost. However, using exactly once semantics the message is
+  ;; persisted after the graph is restarted.
+  (let [p-id  "cues.queue-test.graph.cues.queue-test.interrupt"
+        p-tid "cues.queue-test.graph.cues.queue-test.interrupt.cues.queue-test.s1"
         d-id  "cues.queue-test.graph.cues.queue-test.done"
         d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
     (let [done-1 (promise)
           done-2 (promise)]
       (let [g (->> {:id         ::graph
                     :processors [{:id ::s1}
-                                 {:id   ::interruptible
+                                 {:id   ::interrupt
                                   :in   {:in ::s1}
                                   :out  {:out ::q1}
                                   :opts {:interrupt? true
@@ -655,13 +660,14 @@
                        :q.try/tailer-indices {p-tid 1}}]}))
         (q/stop-graph! g)))
 
-    ;; After restarting the graph both messages are delivered.
+    ;; After restarting the graph both messages are delivered, and we
+    ;; can see the subsequent attempt in the backing queue.
     (let [done-1 (promise)
           done-2 (promise)
           done-3 (promise)]
       (let [g (->> {:id         ::graph
                     :processors [{:id ::s1}
-                                 {:id  ::interruptible
+                                 {:id  ::interrupt
                                   :in  {:in ::s1}
                                   :out {:out ::q1}}
                                  {:id   ::done
@@ -673,7 +679,7 @@
                                   :in   {:in p-id}
                                   :opts {:done    done-2
                                          :counter (atom 0)
-                                         :n       5}}           ; 5 + 1 from previous graph
+                                         :n       5}} ; 5 + 1 from previous graph
                                  {:id   ::d3
                                   :fn   ::done-counter
                                   :in   {:in d-id}
@@ -695,13 +701,13 @@
                        :q.try/proc-id        p-id
                        :q.try/tailer-indices {p-tid 1}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              -792570518
+                       :q/hash              -807989657
                        :q.try/message-index 1}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-id
                        :q.try/tailer-indices {p-tid 2}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              177303862
+                       :q/hash              -1035784651
                        :q.try/message-index 2}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-id
@@ -722,7 +728,7 @@
         (q/stop-graph! g)
         (q/close-and-delete-graph! g true)))))
 
-(defmethod q/processor ::processor-throw
+(defmethod q/processor ::handled-error
   [{{:keys [counter]} :opts} {msg :in}]
   (err/on-error {:err/more "context"}
     (if (= (swap! counter inc) 1)
@@ -730,9 +736,12 @@
       {:out msg})))
 
 (t/deftest exactly-once-processor-fn-throw-test
+  ;; The processor throws a handled error. Handled errors are
+  ;; considered delivered according exactly once semantics. The error
+  ;; queue is configured and the error should appear there.
   (log/with-level :fatal
-    (let [p-id   "cues.queue-test.graph.cues.queue-test.processor-throw"
-          p-tid  "cues.queue-test.graph.cues.queue-test.processor-throw.cues.queue-test.s1"
+    (let [p-id   "cues.queue-test.graph.cues.queue-test.handled-error"
+          p-tid  "cues.queue-test.graph.cues.queue-test.handled-error.cues.queue-test.s1"
           d-id   "cues.queue-test.graph.cues.queue-test.done"
           d-tid  "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"
           done-1 (promise)
@@ -742,7 +751,7 @@
         [g {:id         ::graph
             :queue-opts {::q/default {:queue-meta false}}
             :processors [{:id ::s1}
-                         {:id   ::processor-throw
+                         {:id   ::handled-error
                           :in   {:in ::s1}
                           :out  {:out ::q1}
                           :opts {:counter (atom 0)}}
@@ -770,7 +779,7 @@
         (is (= (-> (q/all-graph-messages g)
                    (update ::qt/error qt/simplify-exceptions))
                {::qt/error [{:q/type            :q.type.err/processor
-                             :err.proc/config   {:id         ::processor-throw
+                             :err.proc/config   {:id         ::handled-error
                                                  :in         ::s1
                                                  :out        ::q1
                                                  :queue-opts {:queue-meta false}
@@ -783,13 +792,13 @@
                              :q.try/proc-id        p-id
                              :q.try/tailer-indices {p-tid 1}}
                             {:q/type              :q.type.try/attempt-error
-                             :q/hash              2141567817
+                             :q/hash              -1840977708
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        p-id
                              :q.try/tailer-indices {p-tid 2}}
                             {:q/type              :q.type.try/attempt
-                             :q/hash              -481526513
+                             :q/hash              -757216404
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        p-id
@@ -803,11 +812,13 @@
                              :q.try/proc-id        d-id
                              :q.try/tailer-indices {d-tid 2}}] }))))))
 
-(def write-impl q/write)
+(def ^:private write-impl
+  "Bind original here for use in test fn."
+  q/write)
 
 (defn- write-handled-error
   "Throws a handled error after persisting the attempt map, but before
-  the output write is made."
+  the output message is written."
   [done counter n]
   (fn [appender msg]
     (write-impl appender msg)
@@ -817,17 +828,19 @@
       (throw (Exception. "Failed after write")))))
 
 (t/deftest exactly-once-write-handled-error-test
-  ;; Tests exactly once semantics if a handled exception happens after
-  ;; an attempt, but before the output write. The error queue is not
-  ;; configured, so message is considered "handled" with a simple
+  ;; The processor throws a handled error after the attempt is
+  ;; persisted, but before the output message is written. The error
+  ;; queue is not configured, so message is considered "handled" after
   ;; logging output.
   (log/with-level :fatal
     (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
           p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"]
       (let [done-1 (promise)
             done-2 (promise)
-            done-3 (promise)]
-        (with-redefs [q/write (write-handled-error done-1 (atom 0) 9)]
+            done-3 (promise)
+            logged (atom 0)]
+        (with-redefs [q/write               (write-handled-error done-1 (atom 0) 9)
+                      q/log-processor-error (fn [_ _] (swap! logged inc))]
           (let [g (->> {:id         ::graph
                         :processors [{:id ::s1}
                                      {:id   ::map-reduce
@@ -846,6 +859,7 @@
             (q/send! g ::s1 {:x 2})
             (is (done? done-1))
             (is (done? done-2))
+            (is (= @logged 2))
             (is (= (q/all-graph-messages g)
                    {::s1 [{:x 1} {:x 2}]
                     ::q1 []
@@ -871,16 +885,18 @@
             (q/stop-graph! g)
             (q/close-and-delete-graph! g true)))))))
 
-(t/deftest exactly-once-write-handled-error-queue-test
-  ;; Tests exactly once semantics if a handled exception happens after
-  ;; an attempt, but before the output write. The error queue is
-  ;; configured in this test so we should see them in the error queue.
+(t/deftest exactly-once-write-handled-error-with-error-queue-test
+  ;; The processor throws a handled error after the attempt is
+  ;; persisted, but before the output message is written. The error
+  ;; queue is configured and the errors should appear there.
   (log/with-level :fatal
     (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
           p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"]
       (let [done-1 (promise)
-            done-2 (promise)]
-        (with-redefs [q/write (write-handled-error done-1 (atom 0) 9)]
+            done-2 (promise)
+            logged (atom 0)]
+        (with-redefs [q/write               (write-handled-error done-1 (atom 0) 9)
+                      q/log-processor-error (fn [_ _] (swap! logged inc))]
           (let [g (->> {:id          ::graph
                         :error-queue ::qt/error
                         :processors  [{:id ::s1}
@@ -900,6 +916,7 @@
             (q/send! g ::s1 {:x 2})
             (is (done? done-1))
             (is (done? done-2))
+            (is (= @logged 2))
             (is (= (-> (q/all-graph-messages g)
                        (update ::qt/error qt/simplify-exceptions))
                    {::qt/error [{:q/type            :q.type.err/processor
@@ -946,19 +963,22 @@
 
 (defn- write-interrupt
   "Throws an unhandled interrupt after persisting the attempt map, but
-  before the output write is made."
-  [done counter n]
+  before the output message is written."
+  [done]
   (fn [appender msg]
     (write-impl appender msg)
     (when (= (:q/type msg) :q.type.try/attempt)
       (try
-        (throw (InterruptedException. "Failed after write"))
-        (finally
-          (deliver done true))))))
+        (throw (q/throw-interrupt!))
+        (finally (deliver done true))))))
 
 (t/deftest exactly-once-write-interrupt-test
-  ;; Tests exactly once semantics if an interrupt happens after an
-  ;; attempt, but before the output write. Note that 
+  ;; The processor throws an unhandled interrupt after the attempt is
+  ;; persisted, but before the output message is written. The
+  ;; processor quits due to the unhandled interrupt. Without exactly
+  ;; once semantics, the message would be lost. However, using exactly
+  ;; once semantics the message is persisted after the graph is
+  ;; restarted.
   (log/with-level :fatal
     (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
           p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"
@@ -966,7 +986,7 @@
           d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
       (let [done-1 (promise)
             done-2 (promise)]
-        (with-redefs [q/write (write-interrupt done-1 (atom 0) 9)]
+        (with-redefs [q/write (write-interrupt done-1)]
           (let [g (->> {:id         ::graph
                         :processors [{:id ::s1}
                                      {:id   ::map-reduce
@@ -995,6 +1015,8 @@
                            :q.try/message-index 1}]}))
             (q/stop-graph! g))))
 
+      ;; After restarting the graph the message is re-delivered, and
+      ;; we can see the subsequent attempts in the backing queue.
       (let [done-2 (promise)
             done-3 (promise)]
         (let [g (->> {:id         ::graph
@@ -1011,13 +1033,13 @@
                                     :in   {:in p-id}
                                     :opts {:done    done-2
                                            :counter (atom 0)
-                                           :n       3}}         ; 3 + 2 from previous graph
+                                           :n       3}} ; 3 + 2 from previous graph
                                    {:id   ::d3
                                     :fn   ::done-counter
                                     :in   {:in d-id}
                                     :opts {:done    done-3
                                            :counter (atom 0)
-                                           :n       3}}]}       ; 3 + 0 from previous graph
+                                           :n       3}}]} ; 3 + 0 from previous graph
                      (q/graph)
                      (q/start-graph!))]
           (is (done? done-2))
@@ -1032,6 +1054,116 @@
                          :q/hash              -91888654
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        p-id
+                         :q.try/tailer-indices {p-tid 1}}
+                        {:q/type              :q.type.try/attempt
+                         :q/hash              -91888654
+                         :q.try/message-index 1}
+                        {:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        p-id
+                         :q.try/tailer-indices {p-tid 2}}]
+                  d-id [{:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        d-id
+                         :q.try/tailer-indices {d-tid 1}}
+                        {:q/type :q.type.try/attempt-nil
+                         :q/hash -956365986}
+                        {:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        d-id
+                         :q.try/tailer-indices {d-tid 2}}]}))
+          (q/stop-graph! g)
+          (q/close-and-delete-graph! g true))))))
+
+(def ^:private full-attempt-impl
+  "Bind original here for use in test fn."
+  @#'q/full-attempt)
+
+(defn- full-attempt-then-interrupt
+  "Throws an unhandled interrupt immediately after both the attempt and
+  output write are completed."
+  [done]
+  (fn [appender msg]
+    (full-attempt-impl appender msg)
+    (try
+      (throw (q/throw-interrupt!))
+      (finally (deliver done true)))))
+
+(t/deftest exactly-once-full-attempt-then-interrupt-test
+  ;; The processor throws an unhandled interrupt after both the
+  ;; attempt and the output message are persisted. The processor then
+  ;; quits due to the unhandled interrupt. Without exactly once
+  ;; semantics, the message would be written again with at least once
+  ;; semantics on restart. However, using exactly once semantics the
+  ;; message is not persisted again after the graph is restarted.
+  (log/with-level :fatal
+    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
+          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"
+          d-id  "cues.queue-test.graph.cues.queue-test.done"
+          d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
+      (let [done-1 (promise)
+            done-2 (promise)]
+        (with-redefs [q/full-attempt (full-attempt-then-interrupt done-1)]
+          (let [g (->> {:id         ::graph
+                        :processors [{:id ::s1}
+                                     {:id   ::map-reduce
+                                      :in   {:in ::s1}
+                                      :out  {:out ::q1}
+                                      :opts {:map-fn inc
+                                             :to     [:out]}}
+                                     {:id   ::d2
+                                      :fn   ::done-counter
+                                      :in   {:in p-id}
+                                      :opts {:done    done-2
+                                             :counter (atom 0)
+                                             :n       2}}]}
+                       (q/graph)
+                       (q/start-graph!))]
+            (q/send! g ::s1 {:x 1})
+            (is (done? done-1))
+            (is (= (q/all-graph-messages g)
+                   {::s1 [{:x 1}]
+                    ::q1 [{:x 2}]
+                    p-id [{:q/type               :q.type.try/snapshot
+                           :q.try/proc-id        p-id
+                           :q.try/tailer-indices {p-tid 1}}
+                          {:q/type              :q.type.try/attempt
+                           :q/hash              -91888654
+                           :q.try/message-index 1}]}))
+            (q/stop-graph! g))))
+
+      ;; After restarting the graph the message is not re-delivered,
+      ;; and we can see there are not subsequent attempts in the try
+      ;; queue.
+      (let [done-2 (promise)
+            done-3 (promise)]
+        (let [g (->> {:id         ::graph
+                      :processors [{:id ::s1}
+                                   {:id   ::map-reduce
+                                    :in   {:in ::s1}
+                                    :out  {:out ::q1}
+                                    :opts {:map-fn inc
+                                           :to     [:out]}}
+                                   {:id ::done
+                                    :in {:in ::q1}}
+                                   {:id   ::d2
+                                    :fn   ::done-counter
+                                    :in   {:in p-id}
+                                    :opts {:done    done-2
+                                           :counter (atom 0)
+                                           :n       1}} ; 1 + 2 from previous graph
+                                   {:id   ::d3
+                                    :fn   ::done-counter
+                                    :in   {:in d-id}
+                                    :opts {:done    done-3
+                                           :counter (atom 0)
+                                           :n       3}}]} ; 3 + 0 from previous graph
+                     (q/graph)
+                     (q/start-graph!))]
+          (is (done? done-2))
+          (is (done? done-3))
+          (is (= (q/all-graph-messages g)
+                 {::s1 [{:x 1}]
+                  ::q1 [{:x 2}]
+                  p-id [{:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
