@@ -50,7 +50,8 @@
   (when (.isDirectory f)
     (doseq [file (.listFiles f)]
       (delete-file file)))
-  (io/delete-file f))
+  (when (.exists f)
+    (io/delete-file f)))
 
 (defn list-files
   "Lists files in the directory, not recursive."

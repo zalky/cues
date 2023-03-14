@@ -609,11 +609,6 @@
     (write try-a m)
     (assoc process :snapshot-hash (hash m))))
 
-(defn- maybe-throw-attempt
-  [ex]
-  (when (instance? Throwable ex)
-    (throw ex)))
-
 (def ^:dynamic add-attempt-hash
   "Only rebind in testing."
   (fn [attempt-hash msg]
@@ -664,15 +659,22 @@
             (.rollbackOnClose doc)
             e))))))
 
+(defn- wrap-throwable
+  [write-fn]
+  (fn [appender msg]
+    (let [x (write-fn appender msg)]
+      (when (instance? Throwable x)
+        (throw x))
+      x)))
+
 (defn- full-attempt
   [{a     :appender
     :as   process} msg]
   (let [f (-> process
               (wrap-attempt)
-              (wrap-write))
-        r (f a msg)]
-    (maybe-throw-attempt r)
-    r))
+              (wrap-throwable)
+              (wrap-write))]
+    (f a msg)))
 
 (defn- nil-attempt
   [{try-a :try-appender
