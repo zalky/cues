@@ -713,6 +713,13 @@
       (to-index t i)
       (log/warn "Topology changed, cannot recover tailer" tid))))
 
+(defn- next-snapshot
+  [try-tailer]
+  (->> #(read try-tailer)
+       (repeatedly)
+       (take-while some?)
+       (some #(when (= (:q/type %) :q.type.try/snapshot) %))))
+
 (defn- recover-attempt
   [try-tailer {{q :queue} :appender
                :as        process} {i :q.try/message-index
@@ -723,7 +730,7 @@
                        (read-with-hash)
                        (:q/meta)
                        (:q/hash)))
-      (->> (read try-tailer)
+      (->> (next-snapshot try-tailer)
            (recover-snapshot process)))))
 
 (defn- recover-attempt-error
@@ -735,7 +742,7 @@
 
 (defn- recover-attempt-nil
   [try-tailer process {h :q/hash}]
-  (let [snapshot (read try-tailer)]
+  (let [snapshot (next-snapshot try-tailer)]
     (when-not (= h (hash snapshot))
       (recover-snapshot process snapshot))))
 
