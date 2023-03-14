@@ -636,6 +636,10 @@
       (:appender-impl)
       (app/underlying-appender)))
 
+(def ^:dynamic attempt-index
+  "Only rebind for tesitng!"
+  (fn [_ i] i))
+
 (defn- wrap-attempt
   [{a     :appender
     try-a :try-appender
@@ -652,6 +656,7 @@
               (.bytes msg*))
           (let [i (.index doc)]
             (->> i
+                 (attempt-index a)
                  (attempt-map process h)
                  (write try-a))
             i)

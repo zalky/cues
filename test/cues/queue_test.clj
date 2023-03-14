@@ -663,13 +663,13 @@
                   :q.try/tailer-indices {i-t-id 1}}
                  {:q/type              :q.type.try/attempt
                   :q/hash              -792570518
-                  :q.try/message-index 83446919593984}
+                  :q.try/message-index 1}
                  {:q/type               :q.type.try/snapshot
                   :q.try/proc-id        i-id
                   :q.try/tailer-indices {i-t-id 2}}
                  {:q/type              :q.type.try/attempt
                   :q/hash              177303862
-                  :q.try/message-index 83446919593985}
+                  :q.try/message-index 2}
                  {:q/type               :q.type.try/snapshot
                   :q.try/proc-id        i-id
                   :q.try/tailer-indices {i-t-id 3}}]
@@ -738,13 +738,13 @@
                 :q.try/tailer-indices {e-t-id 1}}
                {:q/type              :q.type.try/attempt-error
                 :q/hash              1889466113
-                :q.try/message-index 83446919593984}
+                :q.try/message-index 1}
                {:q/type               :q.type.try/snapshot
                 :q.try/proc-id        e-id
                 :q.try/tailer-indices {e-t-id 2}}
                {:q/type              :q.type.try/attempt
                 :q/hash              -334325463
-                :q.try/message-index 83446919593984}
+                :q.try/message-index 1}
                {:q/type               :q.type.try/snapshot
                 :q.try/proc-id        e-id
                 :q.try/tailer-indices {e-t-id 3}}]

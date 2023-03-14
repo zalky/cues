@@ -55,6 +55,14 @@
           i-1 (q/index* t-1)]
       (inc (- i i-1)))))
 
+(defn attempt-index-from-1
+  "For testing purposes only."
+  [appender i]
+  (q/with-tailer [t-1 (:queue appender)]
+    (let [_   (q/to-start t-1)
+          i-1 (q/index* t-1)]
+      (if (zero? i) 1 (inc (- i i-1))))))
+
 (defn with-test-indices
   "A number of cues.queue functions are rebound to make queue indices
   easier to work with in unit tests. While ChronicleQueue indicies are
@@ -68,11 +76,12 @@
   general, and you should never rebind these methods outside of unit
   tests."
   [f]
-  (binding [q/last-read-index  last-read-index-from-1
-            q/last-index       last-index-from-1
-            q/to-index         to-index-from-1
-            q/index            index-from-1
-            q/written-index    written-index-from-1]
+  (binding [q/last-read-index last-read-index-from-1
+            q/last-index      last-index-from-1
+            q/to-index        to-index-from-1
+            q/index           index-from-1
+            q/written-index   written-index-from-1
+            q/attempt-index   attempt-index-from-1]
     (f)))
 
 (defmacro with-graph-and-delete
