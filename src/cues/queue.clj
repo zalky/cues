@@ -57,7 +57,7 @@
 (defn id->str
   [id]
   (cond
-    (qualified-keyword? id) (str (namespace id) "." (name id))
+    (qualified-keyword? id) (str (namespace id) "/" (name id))
     (keyword? id)           (name id)
     (uuid? id)              (str id)
     (string? id)            id))

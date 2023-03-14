@@ -627,10 +627,10 @@
   ;; interrupt. Without exactly once semantics the first message would
   ;; be lost. However, using exactly once semantics the message is
   ;; persisted after the graph is restarted.
-  (let [p-id  "cues.queue-test.graph.cues.queue-test.interrupt"
-        p-tid "cues.queue-test.graph.cues.queue-test.interrupt.cues.queue-test.s1"
-        d-id  "cues.queue-test.graph.cues.queue-test.done"
-        d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
+  (let [p-id  "cues.queue-test/graph.cues.queue-test/interrupt"
+        p-tid "cues.queue-test/graph.cues.queue-test/interrupt.cues.queue-test/s1"
+        d-id  "cues.queue-test/graph.cues.queue-test/done"
+        d-tid "cues.queue-test/graph.cues.queue-test/done.cues.queue-test/q1"]
     (let [done-1 (promise)
           done-2 (promise)]
       (let [g (->> {:id         ::graph
@@ -701,13 +701,13 @@
                        :q.try/proc-id        p-id
                        :q.try/tailer-indices {p-tid 1}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              -807989657
+                       :q/hash              774656183
                        :q.try/message-index 1}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-id
                        :q.try/tailer-indices {p-tid 2}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              -1035784651
+                       :q/hash              -374499325
                        :q.try/message-index 2}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-id
@@ -716,12 +716,12 @@
                        :q.try/proc-id        d-id
                        :q.try/tailer-indices {d-tid 1}}
                       {:q/type :q.type.try/attempt-nil
-                       :q/hash -956365986}
+                       :q/hash 1578689934}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        d-id
                        :q.try/tailer-indices {d-tid 2}}
                       {:q/type :q.type.try/attempt-nil
-                       :q/hash 1879680366}
+                       :q/hash -1412939584}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        d-id
                        :q.try/tailer-indices {d-tid 3}}]}))
@@ -740,10 +740,10 @@
   ;; considered delivered according exactly once semantics. The error
   ;; queue is configured and the error should appear there.
   (log/with-level :fatal
-    (let [p-id   "cues.queue-test.graph.cues.queue-test.handled-error"
-          p-tid  "cues.queue-test.graph.cues.queue-test.handled-error.cues.queue-test.s1"
-          d-id   "cues.queue-test.graph.cues.queue-test.done"
-          d-tid  "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"
+    (let [p-id   "cues.queue-test/graph.cues.queue-test/handled-error"
+          p-tid  "cues.queue-test/graph.cues.queue-test/handled-error.cues.queue-test/s1"
+          d-id   "cues.queue-test/graph.cues.queue-test/done"
+          d-tid  "cues.queue-test/graph.cues.queue-test/done.cues.queue-test/q1"
           done-1 (promise)
           done-2 (promise)
           done-3 (promise)]
@@ -792,13 +792,13 @@
                              :q.try/proc-id        p-id
                              :q.try/tailer-indices {p-tid 1}}
                             {:q/type              :q.type.try/attempt-error
-                             :q/hash              -1840977708
+                             :q/hash              -90516633
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        p-id
                              :q.try/tailer-indices {p-tid 2}}
                             {:q/type              :q.type.try/attempt
-                             :q/hash              -757216404
+                             :q/hash              -504544786
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        p-id
@@ -807,7 +807,7 @@
                              :q.try/proc-id        d-id
                              :q.try/tailer-indices {d-tid 1}}
                             {:q/type :q.type.try/attempt-nil
-                             :q/hash -956365986}
+                             :q/hash 1578689934}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        d-id
                              :q.try/tailer-indices {d-tid 2}}] }))))))
@@ -833,8 +833,8 @@
   ;; queue is not configured, so message is considered "handled" after
   ;; logging output.
   (log/with-level :fatal
-    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
-          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"]
+    (let [p-id  "cues.queue-test/graph.cues.queue-test/map-reduce"
+          p-tid "cues.queue-test/graph.cues.queue-test/map-reduce.cues.queue-test/s1"]
       (let [done-1 (promise)
             done-2 (promise)
             done-3 (promise)
@@ -867,18 +867,18 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 1}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              -91888654
+                           :q/hash              1100235961
                            :q.try/message-index 1}
                           {:q/type :q.type.try/attempt-nil
-                           :q/hash -91888654}
+                           :q/hash 1100235961}
                           {:q/type               :q.type.try/snapshot
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 2}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              206705394
+                           :q/hash              -1512925886
                            :q.try/message-index 1}
                           {:q/type :q.type.try/attempt-nil
-                           :q/hash 206705394}
+                           :q/hash -1512925886}
                           {:q/type               :q.type.try/snapshot
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 3}}]}))
@@ -890,8 +890,8 @@
   ;; persisted, but before the output message is written. The error
   ;; queue is configured and the errors should appear there.
   (log/with-level :fatal
-    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
-          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"]
+    (let [p-id  "cues.queue-test/graph.cues.queue-test/map-reduce"
+          p-tid "cues.queue-test/graph.cues.queue-test/map-reduce.cues.queue-test/s1"]
       (let [done-1 (promise)
             done-2 (promise)
             logged (atom 0)]
@@ -941,19 +941,19 @@
                                  :q.try/proc-id        p-id
                                  :q.try/tailer-indices {p-tid 1}}
                                 {:q/type              :q.type.try/attempt
-                                 :q/hash              -91888654
+                                 :q/hash              1100235961
                                  :q.try/message-index 1}
                                 {:q/type              :q.type.try/attempt-error
-                                 :q/hash              -91888654
+                                 :q/hash              1100235961
                                  :q.try/message-index 1}
                                 {:q/type               :q.type.try/snapshot
                                  :q.try/proc-id        p-id
                                  :q.try/tailer-indices {p-tid 2}}
                                 {:q/type              :q.type.try/attempt
-                                 :q/hash              206705394
+                                 :q/hash              -1512925886
                                  :q.try/message-index 1}
                                 {:q/type              :q.type.try/attempt-error
-                                 :q/hash              206705394
+                                 :q/hash              -1512925886
                                  :q.try/message-index 2}
                                 {:q/type               :q.type.try/snapshot
                                  :q.try/proc-id        p-id
@@ -980,10 +980,10 @@
   ;; once semantics the message is persisted after the graph is
   ;; restarted.
   (log/with-level :fatal
-    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
-          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"
-          d-id  "cues.queue-test.graph.cues.queue-test.done"
-          d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
+    (let [p-id  "cues.queue-test/graph.cues.queue-test/map-reduce"
+          p-tid "cues.queue-test/graph.cues.queue-test/map-reduce.cues.queue-test/s1"
+          d-id  "cues.queue-test/graph.cues.queue-test/done"
+          d-tid "cues.queue-test/graph.cues.queue-test/done.cues.queue-test/q1"]
       (let [done-1 (promise)
             done-2 (promise)]
         (with-redefs [q/write (write-interrupt done-1)]
@@ -1011,7 +1011,7 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 1}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              -91888654
+                           :q/hash              1100235961
                            :q.try/message-index 1}]}))
             (q/stop-graph! g))))
 
@@ -1051,13 +1051,13 @@
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
-                         :q/hash              -91888654
+                         :q/hash              1100235961
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
-                         :q/hash              -91888654
+                         :q/hash              1100235961
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
@@ -1066,7 +1066,7 @@
                          :q.try/proc-id        d-id
                          :q.try/tailer-indices {d-tid 1}}
                         {:q/type :q.type.try/attempt-nil
-                         :q/hash -956365986}
+                         :q/hash 1578689934}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        d-id
                          :q.try/tailer-indices {d-tid 2}}]}))
@@ -1095,10 +1095,10 @@
   ;; semantics on restart. However, using exactly once semantics the
   ;; message is not persisted again after the graph is restarted.
   (log/with-level :fatal
-    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
-          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"
-          d-id  "cues.queue-test.graph.cues.queue-test.done"
-          d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
+    (let [p-id  "cues.queue-test/graph.cues.queue-test/map-reduce"
+          p-tid "cues.queue-test/graph.cues.queue-test/map-reduce.cues.queue-test/s1"
+          d-id  "cues.queue-test/graph.cues.queue-test/done"
+          d-tid "cues.queue-test/graph.cues.queue-test/done.cues.queue-test/q1"]
       (let [done-1 (promise)
             done-2 (promise)]
         (with-redefs [q/full-attempt (full-attempt-then-interrupt done-1)]
@@ -1126,7 +1126,7 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 1}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              -91888654
+                           :q/hash              1100235961
                            :q.try/message-index 1}]}))
             (q/stop-graph! g))))
 
@@ -1167,7 +1167,7 @@
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
-                         :q/hash              -91888654
+                         :q/hash              1100235961
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
@@ -1176,7 +1176,7 @@
                          :q.try/proc-id        d-id
                          :q.try/tailer-indices {d-tid 1}}
                         {:q/type :q.type.try/attempt-nil
-                         :q/hash -956365986}
+                         :q/hash 1578689934}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        d-id
                          :q.try/tailer-indices {d-tid 2}}]}))
