@@ -1,4 +1,4 @@
-(ns cues.controller-cache
+(ns cues.controllers
   "Provides a global controller cache.
 
   Controllers ensure that blocking tailers will unblock when an
