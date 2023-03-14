@@ -572,6 +572,12 @@
   delivery semantics in Cues processors."
   (comp :strategy :config))
 
+(defn- processor-error
+  [{config :config} msgs]
+  {:q/type            :q.type.err/processor
+   :err.proc/config   config
+   :err.proc/messages msgs})
+
 (defn- snapshot-map
   [id tailer-indices]
   {:q/type               :q.type.try/snapshot
@@ -686,10 +692,11 @@
 
 (defmethod persistent-attempt ::exactly-once
   [process msg]
-  (if (and (:appender process) msg)
-    (full-attempt process msg)
-    (nil-attempt process))
-  true)
+  (err/on-error (processor-error process msg)
+    (if (and (:appender process) msg)
+      (full-attempt process msg)
+      (nil-attempt process))
+    true))
 
 (defn- snapshot?
   [msg]
@@ -890,12 +897,6 @@
         (->> (err/error e)
              (ex-data)
              (persistent-attempt p))))))
-
-(defn- processor-error
-  [{config :config} msgs]
-  {:q/type            :q.type.err/processor
-   :err.proc/config   config
-   :err.proc/messages msgs})
 
 (defn- wrap-processor-fn
   [f]

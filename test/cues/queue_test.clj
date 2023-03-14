@@ -600,9 +600,9 @@
                                       :tx/t    2}}]})))))
 
 (defmethod q/processor ::interruptible
-  [{{:keys [done throw?]} :opts} {msg :in}]
+  [{{:keys [done interrupt?]} :opts} {msg :in}]
   (try
-    (when throw?
+    (when interrupt?
       (q/throw-interrupt!))
     {:out msg}
     (finally
@@ -618,13 +618,14 @@
        (into {})))
 
 (t/deftest exactly-once-test
-  ;; First test throws an uncaught interrupt exception. Using
-  ;; the :default message semantics the message is delivered when the
-  ;; graph is restarted.
-  (let [i-id   "cues.queue-test.graph.cues.queue-test.interruptible"
-        i-t-id "cues.queue-test.graph.cues.queue-test.interruptible.cues.queue-test.s1"
-        d-id   "cues.queue-test.graph.cues.queue-test.done"
-        d-t-id "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
+  ;; The first time the graph is started the processor throws an
+  ;; interrupt exception. Without exactly once semantics the first
+  ;; message would be lost. Instead it is delivered when the graph is
+  ;; restarted.
+  (let [p-id  "cues.queue-test.graph.cues.queue-test.interruptible"
+        p-tid "cues.queue-test.graph.cues.queue-test.interruptible.cues.queue-test.s1"
+        d-id  "cues.queue-test.graph.cues.queue-test.done"
+        d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
     (let [done-1 (promise)
           done-2 (promise)]
       (let [g (->> {:id         ::graph
@@ -632,10 +633,11 @@
                                  {:id   ::interruptible
                                   :in   {:in ::s1}
                                   :out  {:out ::q1}
-                                  :opts {:throw? true
-                                         :done   done-1}}
-                                 {:id   ::done-counter
-                                  :in   {:in i-id}
+                                  :opts {:interrupt? true
+                                         :done       done-1}}
+                                 {:id   ::d2
+                                  :fn   ::done-counter
+                                  :in   {:in p-id}
                                   :opts {:done    done-2
                                          :counter (atom 0)
                                          :n       1}}]}
@@ -648,11 +650,12 @@
         (is (= (q/all-graph-messages g)
                {::s1 [{:x 1} {:x 2}]
                 ::q1 []
-                i-id [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        i-id
-                       :q.try/tailer-indices {i-t-id 1}}]}))
+                p-id [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid 1}}]}))
         (q/stop-graph! g)))
 
+    ;; After restarting the graph both messages are delivered.
     (let [done-1 (promise)
           done-2 (promise)
           done-3 (promise)]
@@ -667,10 +670,10 @@
                                          :x-n  2}}
                                  {:id   ::d2
                                   :fn   ::done-counter
-                                  :in   {:in i-id}
+                                  :in   {:in p-id}
                                   :opts {:done    done-2
                                          :counter (atom 0)
-                                         :n       6}}
+                                         :n       5}}           ; 5 + 1 from previous graph
                                  {:id   ::d3
                                   :fn   ::done-counter
                                   :in   {:in d-id}
@@ -685,37 +688,38 @@
         (is (= (q/all-graph-messages g)
                {::s1 [{:x 1} {:x 2}]
                 ::q1 [{:x 1} {:x 2}]
-                i-id [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        i-id
-                       :q.try/tailer-indices {i-t-id 1}}
+                p-id [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid 1}}
                       {:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        i-id
-                       :q.try/tailer-indices {i-t-id 1}}
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid 1}}
                       {:q/type              :q.type.try/attempt
                        :q/hash              -792570518
                        :q.try/message-index 1}
                       {:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        i-id
-                       :q.try/tailer-indices {i-t-id 2}}
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid 2}}
                       {:q/type              :q.type.try/attempt
                        :q/hash              177303862
                        :q.try/message-index 2}
                       {:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        i-id
-                       :q.try/tailer-indices {i-t-id 3}}]
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid 3}}]
                 d-id [{:q/type               :q.type.try/snapshot
                        :q.try/proc-id        d-id
-                       :q.try/tailer-indices {d-t-id 1}}
+                       :q.try/tailer-indices {d-tid 1}}
                       {:q/type :q.type.try/attempt-nil
                        :q/hash -956365986}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        d-id
-                       :q.try/tailer-indices {d-t-id 2}}
+                       :q.try/tailer-indices {d-tid 2}}
                       {:q/type :q.type.try/attempt-nil
                        :q/hash 1879680366}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        d-id
-                       :q.try/tailer-indices {d-t-id 3}}]}))
+                       :q.try/tailer-indices {d-tid 3}}]}))
+        (q/stop-graph! g)
         (q/close-and-delete-graph! g true)))))
 
 (defmethod q/processor ::processor-throw
@@ -727,10 +731,10 @@
 
 (t/deftest exactly-once-processor-fn-throw-test
   (log/with-level :fatal
-    (let [e-id   "cues.queue-test.graph.cues.queue-test.processor-throw"
-          e-t-id "cues.queue-test.graph.cues.queue-test.processor-throw.cues.queue-test.s1"
+    (let [p-id   "cues.queue-test.graph.cues.queue-test.processor-throw"
+          p-tid  "cues.queue-test.graph.cues.queue-test.processor-throw.cues.queue-test.s1"
           d-id   "cues.queue-test.graph.cues.queue-test.done"
-          d-t-id "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"
+          d-tid  "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"
           done-1 (promise)
           done-2 (promise)
           done-3 (promise)]
@@ -748,7 +752,7 @@
                                  :x-n  2}}
                          {:id   ::d2
                           :fn   ::done-counter
-                          :in   {:in e-id}
+                          :in   {:in p-id}
                           :opts {:done    done-2
                                  :counter (atom 0)
                                  :n       5}}
@@ -775,29 +779,277 @@
                              :err/cause         {:cause "Oops"}}]
                 ::s1       [{:x 1} {:x 2}]
                 ::q1       [{:x 2}]
-                e-id       [{:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        e-id
-                             :q.try/tailer-indices {e-t-id 1}}
+                p-id       [{:q/type               :q.type.try/snapshot
+                             :q.try/proc-id        p-id
+                             :q.try/tailer-indices {p-tid 1}}
                             {:q/type              :q.type.try/attempt-error
                              :q/hash              2141567817
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        e-id
-                             :q.try/tailer-indices {e-t-id 2}}
+                             :q.try/proc-id        p-id
+                             :q.try/tailer-indices {p-tid 2}}
                             {:q/type              :q.type.try/attempt
                              :q/hash              -481526513
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        e-id
-                             :q.try/tailer-indices {e-t-id 3}}]
+                             :q.try/proc-id        p-id
+                             :q.try/tailer-indices {p-tid 3}}]
                 d-id       [{:q/type               :q.type.try/snapshot
                              :q.try/proc-id        d-id
-                             :q.try/tailer-indices {d-t-id 1}}
+                             :q.try/tailer-indices {d-tid 1}}
                             {:q/type :q.type.try/attempt-nil
                              :q/hash -956365986}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        d-id
-                             :q.try/tailer-indices {d-t-id 2}}] }))))))
+                             :q.try/tailer-indices {d-tid 2}}] }))))))
+
+(def write-impl q/write)
+
+(defn- write-handled-error
+  "Throws a handled error after persisting the attempt map, but before
+  the output write is made."
+  [done counter n]
+  (fn [appender msg]
+    (write-impl appender msg)
+    (when (= (swap! counter inc) n)
+      (deliver done true))
+    (when (= (:q/type msg) :q.type.try/attempt)
+      (throw (Exception. "Failed after write")))))
+
+(t/deftest exactly-once-write-handled-error-test
+  ;; Tests exactly once semantics if a handled exception happens after
+  ;; an attempt, but before the output write. The error queue is not
+  ;; configured, so message is considered "handled" with a simple
+  ;; logging output.
+  (log/with-level :fatal
+    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
+          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"]
+      (let [done-1 (promise)
+            done-2 (promise)
+            done-3 (promise)]
+        (with-redefs [q/write (write-handled-error done-1 (atom 0) 9)]
+          (let [g (->> {:id         ::graph
+                        :processors [{:id ::s1}
+                                     {:id   ::map-reduce
+                                      :in   {:in ::s1}
+                                      :out  {:out ::q1}
+                                      :opts {:map-fn inc
+                                             :to     [:out]}}
+                                     {:id   ::done-counter
+                                      :in   {:in p-id}
+                                      :opts {:done    done-2
+                                             :counter (atom 0)
+                                             :n       7}}]}
+                       (q/graph)
+                       (q/start-graph!))]
+            (q/send! g ::s1 {:x 1})
+            (q/send! g ::s1 {:x 2})
+            (is (done? done-1))
+            (is (done? done-2))
+            (is (= (q/all-graph-messages g)
+                   {::s1 [{:x 1} {:x 2}]
+                    ::q1 []
+                    p-id [{:q/type               :q.type.try/snapshot
+                           :q.try/proc-id        p-id
+                           :q.try/tailer-indices {p-tid 1}}
+                          {:q/type              :q.type.try/attempt
+                           :q/hash              -91888654
+                           :q.try/message-index 1}
+                          {:q/type :q.type.try/attempt-nil
+                           :q/hash -91888654}
+                          {:q/type               :q.type.try/snapshot
+                           :q.try/proc-id        p-id
+                           :q.try/tailer-indices {p-tid 2}}
+                          {:q/type              :q.type.try/attempt
+                           :q/hash              206705394
+                           :q.try/message-index 1}
+                          {:q/type :q.type.try/attempt-nil
+                           :q/hash 206705394}
+                          {:q/type               :q.type.try/snapshot
+                           :q.try/proc-id        p-id
+                           :q.try/tailer-indices {p-tid 3}}]}))
+            (q/stop-graph! g)
+            (q/close-and-delete-graph! g true)))))))
+
+(t/deftest exactly-once-write-handled-error-queue-test
+  ;; Tests exactly once semantics if a handled exception happens after
+  ;; an attempt, but before the output write. The error queue is
+  ;; configured in this test so we should see them in the error queue.
+  (log/with-level :fatal
+    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
+          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"]
+      (let [done-1 (promise)
+            done-2 (promise)]
+        (with-redefs [q/write (write-handled-error done-1 (atom 0) 9)]
+          (let [g (->> {:id          ::graph
+                        :error-queue ::qt/error
+                        :processors  [{:id ::s1}
+                                      {:id   ::map-reduce
+                                       :in   {:in ::s1}
+                                       :out  {:out ::q1}
+                                       :opts {:map-fn inc
+                                              :to     [:out]}}
+                                      {:id   ::done-counter
+                                       :in   {:in p-id}
+                                       :opts {:done    done-2
+                                              :counter (atom 0)
+                                              :n       7}}]}
+                       (q/graph)
+                       (q/start-graph!))]
+            (q/send! g ::s1 {:x 1})
+            (q/send! g ::s1 {:x 2})
+            (is (done? done-1))
+            (is (done? done-2))
+            (is (= (-> (q/all-graph-messages g)
+                       (update ::qt/error qt/simplify-exceptions))
+                   {::qt/error [{:q/type            :q.type.err/processor
+                                 :err.proc/config   {:id         ::map-reduce
+                                                     :in         ::s1
+                                                     :out        ::q1
+                                                     :queue-opts nil
+                                                     :strategy   ::q/exactly-once}
+                                 :err.proc/messages {:x 2}
+                                 :err/cause         {:cause "Failed after write"}}
+                                {:q/type            :q.type.err/processor
+                                 :err.proc/config   {:id         ::map-reduce
+                                                     :in         ::s1
+                                                     :out        ::q1
+                                                     :queue-opts nil
+                                                     :strategy   ::q/exactly-once}
+                                 :err.proc/messages {:x 3}
+                                 :err/cause         {:cause "Failed after write"}}]
+                    ::s1       [{:x 1} {:x 2}]
+                    ::q1       []
+                    p-id       [{:q/type               :q.type.try/snapshot
+                                 :q.try/proc-id        p-id
+                                 :q.try/tailer-indices {p-tid 1}}
+                                {:q/type              :q.type.try/attempt
+                                 :q/hash              -91888654
+                                 :q.try/message-index 1}
+                                {:q/type              :q.type.try/attempt-error
+                                 :q/hash              -91888654
+                                 :q.try/message-index 1}
+                                {:q/type               :q.type.try/snapshot
+                                 :q.try/proc-id        p-id
+                                 :q.try/tailer-indices {p-tid 2}}
+                                {:q/type              :q.type.try/attempt
+                                 :q/hash              206705394
+                                 :q.try/message-index 1}
+                                {:q/type              :q.type.try/attempt-error
+                                 :q/hash              206705394
+                                 :q.try/message-index 2}
+                                {:q/type               :q.type.try/snapshot
+                                 :q.try/proc-id        p-id
+                                 :q.try/tailer-indices {p-tid 3}}]}))
+            (q/stop-graph! g)
+            (q/close-and-delete-graph! g true)))))))
+
+(defn- write-interrupt
+  "Throws an unhandled interrupt after persisting the attempt map, but
+  before the output write is made."
+  [done counter n]
+  (fn [appender msg]
+    (write-impl appender msg)
+    (when (= (:q/type msg) :q.type.try/attempt)
+      (try
+        (throw (InterruptedException. "Failed after write"))
+        (finally
+          (deliver done true))))))
+
+(t/deftest exactly-once-write-interrupt-test
+  ;; Tests exactly once semantics if an interrupt happens after an
+  ;; attempt, but before the output write. Note that 
+  (log/with-level :fatal
+    (let [p-id  "cues.queue-test.graph.cues.queue-test.map-reduce"
+          p-tid "cues.queue-test.graph.cues.queue-test.map-reduce.cues.queue-test.s1"
+          d-id  "cues.queue-test.graph.cues.queue-test.done"
+          d-tid "cues.queue-test.graph.cues.queue-test.done.cues.queue-test.q1"]
+      (let [done-1 (promise)
+            done-2 (promise)]
+        (with-redefs [q/write (write-interrupt done-1 (atom 0) 9)]
+          (let [g (->> {:id         ::graph
+                        :processors [{:id ::s1}
+                                     {:id   ::map-reduce
+                                      :in   {:in ::s1}
+                                      :out  {:out ::q1}
+                                      :opts {:map-fn inc
+                                             :to     [:out]}}
+                                     {:id   ::d2
+                                      :fn   ::done-counter
+                                      :in   {:in p-id}
+                                      :opts {:done    done-2
+                                             :counter (atom 0)
+                                             :n       2}}]}
+                       (q/graph)
+                       (q/start-graph!))]
+            (q/send! g ::s1 {:x 1})
+            (is (done? done-1))
+            (is (= (q/all-graph-messages g)
+                   {::s1 [{:x 1}]
+                    ::q1 []
+                    p-id [{:q/type               :q.type.try/snapshot
+                           :q.try/proc-id        p-id
+                           :q.try/tailer-indices {p-tid 1}}
+                          {:q/type              :q.type.try/attempt
+                           :q/hash              -91888654
+                           :q.try/message-index 1}]}))
+            (q/stop-graph! g))))
+
+      (let [done-2 (promise)
+            done-3 (promise)]
+        (let [g (->> {:id         ::graph
+                      :processors [{:id ::s1}
+                                   {:id   ::map-reduce
+                                    :in   {:in ::s1}
+                                    :out  {:out ::q1}
+                                    :opts {:map-fn inc
+                                           :to     [:out]}}
+                                   {:id ::done
+                                    :in {:in ::q1}}
+                                   {:id   ::d2
+                                    :fn   ::done-counter
+                                    :in   {:in p-id}
+                                    :opts {:done    done-2
+                                           :counter (atom 0)
+                                           :n       3}}         ; 3 + 2 from previous graph
+                                   {:id   ::d3
+                                    :fn   ::done-counter
+                                    :in   {:in d-id}
+                                    :opts {:done    done-3
+                                           :counter (atom 0)
+                                           :n       3}}]}       ; 3 + 0 from previous graph
+                     (q/graph)
+                     (q/start-graph!))]
+          (is (done? done-2))
+          (is (done? done-3))
+          (is (= (q/all-graph-messages g)
+                 {::s1 [{:x 1}]
+                  ::q1 [{:x 2}]
+                  p-id [{:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        p-id
+                         :q.try/tailer-indices {p-tid 1}}
+                        {:q/type              :q.type.try/attempt
+                         :q/hash              -91888654
+                         :q.try/message-index 1}
+                        {:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        p-id
+                         :q.try/tailer-indices {p-tid 1}}
+                        {:q/type              :q.type.try/attempt
+                         :q/hash              -91888654
+                         :q.try/message-index 1}
+                        {:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        p-id
+                         :q.try/tailer-indices {p-tid 2}}]
+                  d-id [{:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        d-id
+                         :q.try/tailer-indices {d-tid 1}}
+                        {:q/type :q.type.try/attempt-nil
+                         :q/hash -956365986}
+                        {:q/type               :q.type.try/snapshot
+                         :q.try/proc-id        d-id
+                         :q.try/tailer-indices {d-tid 2}}]}))
+          (q/stop-graph! g)
+          (q/close-and-delete-graph! g true))))))
 
 (def stress-fixtures
   (t/join-fixtures [qt/with-warn]))
