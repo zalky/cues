@@ -1,6 +1,8 @@
 (ns cues.util
   (:require [clojure.java.io :as io]
-            [clojure.walk :as walk])
+            [clojure.spec.alpha :as s]
+            [clojure.walk :as walk]
+            [expound.alpha :as expound])
   (:import java.io.File
            java.util.UUID))
 
@@ -86,6 +88,15 @@
                (not-empty)
                (assoc m k))
       (dissoc m k)))
+
+(defn parse
+  [spec x]
+  (let [form (s/conform spec x)]
+    (if (= form ::s/invalid)
+      (-> (expound/expound-str spec x)
+          (IllegalArgumentException.)
+          (throw))
+      form)))
 
 ;; Catalogs
 

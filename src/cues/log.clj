@@ -1,6 +1,5 @@
 (ns cues.log
   (:require [clojure.spec.alpha :as s]
-            [expound.alpha :as expound]
             [taoensso.encore :as enc]
             [taoensso.timbre :as log]
             [taoensso.timbre.appenders.core :as appenders]))
@@ -42,5 +41,4 @@
   (when (or (nil? c) (contains? #{"cues" "runway"} c))
     (log/set-config! config)))
 
-(alter-var-root #'s/*explain-out* (constantly expound/printer))
 (s/check-asserts true)

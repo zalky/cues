@@ -1,7 +1,7 @@
-{:deps    {com.fzakaria/slf4j-timbre   {:mvn/version "0.3.20"}
-           com.stuartsierra/dependency {:mvn/version "1.0.0"}
-           com.taoensso/nippy          {:mvn/version "3.1.1"}
-           expound/expound             {:mvn/version "0.8.10"}
+{:deps    {com.stuartsierra/dependency {:mvn/version "1.0.0"}
+           com.taoensso/nippy          {:mvn/version "3.2.0"}
+           com.taoensso/timbre         {:mvn/version "5.2.1"}
+           expound/expound             {:mvn/version "0.9.0"}
            io.zalky/cinch              {:mvn/version "0.1.1"}
            io.zalky/tape               {:mvn/version "0.3.5-rc2" :exclusions [net.openhft/chronicle-analytics]}
            net.openhft/chronicle-queue {:mvn/version "5.22ea3" :exclusions [net.openhft/chronicle-analytics]}
@@ -19,11 +19,13 @@
                                     cues.dev            true}}
            :test     {:extra-paths ["test"]
                       :extra-deps  {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
-                                                               :sha     "705ad25bbf0228b1c38d0244a36001c2987d7337"}}
+                                                               :sha     "705ad25bbf0228b1c38d0244a36001c2987d7337"}
+                                    org.slf4j/slf4j-nop       {:mvn/version "2.0.6"}}
                       :jvm-opts    ["-Dprofile=test"]
                       :main-opts   ["-m" "cognitect.test-runner"]}
            :server   {:extra-paths ["build"]
-                      :extra-deps  {io.zalky/runway {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}}
+                      :extra-deps  {io.zalky/runway     {:mvn/version "0.2.2" :exclusions [com.taoensso/encore]}
+                                    org.slf4j/slf4j-nop {:mvn/version "2.0.6"}}
                       :exec-fn     runway.core/exec
                       :exec-args   {runway.core/go {:system cues.build/test-system}}
                       :jvm-opts    ["-XX:-OmitStackTraceInFastThrow"]}

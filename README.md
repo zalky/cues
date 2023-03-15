@@ -67,6 +67,7 @@ abstractions that hide most of the boiler-plate, but then you might
 want to circle back at some point to understand the underlying
 mechanics.
 
+1. [Installation](#installation)
 1. [Quick Start](#quick-start)
 2. [Primitives: Queues, Tailers, and Appenders](#queues)
 3. [Processors and Graphs](#processors-graphs)
@@ -78,15 +79,25 @@ mechanics.
 4. [Queue Configuration](#configuration)
 5. [Queue Metadata](#metadata)
 6. [Utility Functions](#utilities)
+7. [Data Serialization](#serialization)
 7. [Java 11 & 17](#java)
 8. [ChronicleQueue Analytics (disabled by default)](#analytics)
 
-## Installation
+## Installation <a name="installation"></a>
 
 Just add the following dependency in your `deps.edn`:
 
 ```clj
 io.zalky/cues {:mvn/version "0.2.0"}
+```
+
+If you do not already have SLF4J bindings loaded in your project,
+SLF4J will print a warning and fall back on the no-operation (NOP)
+bindings. To suppress the warning, simply include the nop bindings
+explicitly in your deps:
+
+```clj
+org.slf4j/slf4j-nop {:mvn/version "2.0.6"}
 ```
 
 Also see the additional notes on running ChronicleQueue on [Java 11 &
@@ -128,6 +139,7 @@ But connecting queues into a system is also straightforward:
   (atom nil))
 
 (defn example-graph
+  "Connect processors together using ::source and ::tx queues."
   [db]
   {:id         ::example
    :processors [{:id ::source}
@@ -153,6 +165,7 @@ But connecting queues into a system is also straightforward:
 {2 {:x 2}
  3 {:x 3}}
 
+;; Inspect the queues that particpate in the graph:
 (q/all-graph-messages g)
 ;; =>
 {::source ({:x 1} {:x 2})
@@ -1099,6 +1112,14 @@ they will prompt you to confirm:
 (q/delete-all-queues!)
 (q/delete-all-queues "data/example")
 ```
+
+## Data Serialization <a name="serialization"></a>
+
+Data serialization is done via the excellent
+[Nippy](https://github.com/ptaoussanis/nippy) library. It is very
+fast, and you can extend support for custom types and records using
+`nippy/extend-freeze` and `nippy/extend-thaw`. See the Nippy
+documentation for more details.
 
 ## Java 11 & 17 <a name="java"></a>
 

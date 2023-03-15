@@ -1195,7 +1195,7 @@
 
 (defn- parse-processor-impl
   [process]
-  (let [[t p] (s*/parse ::processor-impl process)]
+  (let [[t p] (cutil/parse ::processor-impl process)]
     (-> p
         (assoc :type t)
         (assoc :uid (:id p)))))
@@ -1577,7 +1577,7 @@
 
 (defn- parse-graph
   [g]
-  (-> (s*/parse ::graph g)
+  (-> (cutil/parse ::graph g)
       (assoc :config g)
       (update :processors (partial mapv parse-processor))))
 
