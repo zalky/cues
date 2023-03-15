@@ -1410,13 +1410,18 @@
      (map :id queues*)
      (map all-messages queues*))))
 
-(s/def ::id-map       (s/map-of keyword? ::id))
-(s/def ::in           ::id-map)
-(s/def ::out          ::id-map)
-(s/def :map/tailers   ::id-map)
-(s/def :map/appenders ::id-map)
-(s/def :map/source    (s/keys :req-un [::id]))
-(s/def ::fn           ::id)
+(s/def ::id-map          (s/map-of keyword? ::id))
+(s/def ::id-map-distinct (s/and ::id-map #(apply distinct? (vals %))))
+(s/def ::in              ::id-map-distinct)
+(s/def ::out             ::id-map-distinct)
+(s/def :map/tailers      ::id-map)
+(s/def :map/appenders    ::id-map)
+(s/def ::fn              ::id)
+
+(s/def :map/source
+  (s/and (s/keys :req-un [::id])
+         #(not (contains? % :in))
+         #(not (contains? % :out))))
 
 (defn- coerce-cardinality
   [[t form]]
