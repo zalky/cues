@@ -572,11 +572,9 @@
   delivery semantics in Cues processors."
   (comp :strategy :config))
 
-(defn- processor-error
-  [{config :config} msgs]
-  {:q/type            :q.type.err/processor
-   :err.proc/config   config
-   :err.proc/messages msgs})
+(defn- snapshot?
+  [msg]
+  (= (:q/type msg) :q.type.try/snapshot))
 
 (defn- snapshot-map
   [id tailer-indices]
@@ -601,6 +599,12 @@
   [attempt-hash]
   {:q/type :q.type.try/attempt-nil
    :q/hash attempt-hash})
+
+(defn- processor-error
+  [{config :config} msgs]
+  {:q/type            :q.type.err/processor
+   :err.proc/config   config
+   :err.proc/messages msgs})
 
 (defmethod persistent-snapshot ::exactly-once
   [{uid     :uid
@@ -698,10 +702,6 @@
       (nil-attempt process))
     true))
 
-(defn- snapshot?
-  [msg]
-  (= (:q/type msg) :q.type.try/snapshot))
-
 (defn- throw-recover-error!
   [process-id tailer-id]
   (-> "No tailer recovery index"
@@ -725,7 +725,7 @@
   (->> #(read try-tailer)
        (repeatedly)
        (take-while some?)
-       (some #(when (= (:q/type %) :q.type.try/snapshot) %))))
+       (some #(when (snapshot? %) %))))
 
 (defn- recover-attempt
   [try-tailer {{q :queue} :appender
@@ -768,9 +768,8 @@
   (try
     (with-tailer [t q]
       (set-direction t :backward)
-      (some->> q
-               (last-index)
-               (to-index t)
+      (some->> t
+               (to-end)
                (read-with-hash)
                (recover t process)))
     (catch InterruptedException e false)
