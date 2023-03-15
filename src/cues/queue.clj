@@ -56,11 +56,10 @@
 
 (defn id->str
   [id]
-  (cond
-    (qualified-keyword? id) (str (namespace id) "/" (name id))
-    (keyword? id)           (name id)
-    (uuid? id)              (str id)
-    (string? id)            id))
+  {:pre [(keyword? id)]}
+  (if (qualified-keyword? id)
+    (str (namespace id) "/" (name id))
+    (name id)))
 
 (defn- queue-path
   [{id              :id
@@ -86,20 +85,24 @@
            (nippy/thaw)))))
 
 (defn- suffix-id
-  "Disambiguates between similar ids within a topology."
   [id suffix]
-  (cond
-    (keyword? id) (keyword (namespace id) (str (name id) suffix))
-    (uuid? id)    (str id suffix)
-    (string? id)  (str id suffix)))
+  {:pre [(keyword? id)]}
+  (keyword (namespace id)
+           (str (name id) suffix)))
 
 (defn- combined-id
-  [& ids]
-  (when-let [ids (not-empty (remove nil? ids))]
-    (->> ids
-         (map id->str)
-         (interpose ".")
-         (apply str))))
+  [id1 id2]
+  {:pre [(or id1 id2)]}
+  (let [ns1 (namespace id1)
+        ns2 (namespace id2)
+        n1  (name id1)
+        n2  (name id2)]
+    (keyword (->> [ns1 n1 ns2]
+                  (remove nil?)
+                  (interpose ".")
+                  (apply str)
+                  (not-empty))
+             (or n2 n1))))
 
 (declare last-index)
 
