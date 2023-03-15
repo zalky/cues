@@ -165,7 +165,7 @@
      {:type       ::queue
       :id         id
       :opts       opts
-      :controller (controllers/lookup id #(atom i))
+      :controller (controllers/lookup path #(atom i))
       :queue-impl q})))
 
 (declare prime-tailer)
@@ -277,11 +277,10 @@
 
 (defn close-queue!
   "Closes the given queue."
-  [{id  :id
-    q   :queue-impl
+  [{q   :queue-impl
     :as queue}]
   {:pre [(queue? queue)]}
-  (controllers/purge id)
+  (controllers/purge (queue-path queue))
   (queue/close! q)
   (System/runFinalization))
 
@@ -1611,12 +1610,12 @@
   blocking will break the next time the queue is made."
   ([queue]
    (delete-queue! queue false))
-  ([{:keys [id] :as queue} force]
+  ([queue force]
    {:pre [(queue? queue)]}
    (let [p (queue-path queue)]
      (when (or force (cutil/prompt-delete! p))
        (close-queue! queue)
-       (controllers/purge id)
+       (controllers/purge p)
        (-> p
            (io/file)
            (cutil/delete-file))))))
@@ -1644,7 +1643,7 @@
    (delete-all-queues! queue-path-default))
   ([queue-path]
    (when (cutil/prompt-delete! queue-path)
-     (reset! controllers/cache {})
+     (controllers/purge queue-path)
      (-> queue-path
          (io/file)
          (cutil/delete-file)))))

@@ -79,6 +79,14 @@
        (map (comp first second))
        (doall)))
 
+(defn dissoc-in
+  [m [k & more]]
+  (or (some->> more
+               (dissoc-in (get m k))
+               (not-empty)
+               (assoc m k))
+      (dissoc m k)))
+
 ;; Catalogs
 
 (defn bind-catalog
