@@ -551,6 +551,10 @@
           (some->> (try-read t)
                    (vector t))))))
 
+(defmulti processor
+  "Analogous to Kafka processors. No default method."
+  (constantly nil))
+
 (defmulti persistent-snapshot
   "Persists processor tailer indices to a backing queue. Called once
   before each processor step. Taken together, persistent-snapshot,
@@ -602,11 +606,17 @@
   {:q/type :q.type.try/attempt-nil
    :q/hash attempt-hash})
 
+(defn- select-bindings
+  [process]
+  (-> process
+      (:parsed)
+      (select-keys [:in :out :tailers :appenders])))
+
 (defn- processor-config
   [process]
   (-> process
-      (select-keys [:id :topics :types :queue-opts :strategy])
-      (merge (:bindings process))))
+      (select-keys [:id :queue-opts :strategy :topics :types])
+      (merge (select-bindings process))))
 
 (defn- processor-error
   [process msgs]
@@ -880,53 +890,6 @@
              (result-fn process))))
     (recover-mem process)))
 
-(defn log-processor-error
-  [{{id    :id
-     :keys [in out]
-     :or   {in  "source"
-            out "sink"}} :bindings} e]
-  (log/error e (format "%s (%s -> %s)" id in out)))
-
-(defn- wrap-catch-error
-  [f]
-  (fn [process msgs]
-    (err/on-error (processor-error process msgs)
-      (f process msgs))))
-
-(def ^:private processor-keys
-  "The keys that are passed along to processor fn."
-  [:id
-   :type
-   :system
-   :queue-opts
-   :bindings
-   :error-queue
-   :strategy
-   :snapshot-hash
-   :opts])
-
-(defn- wrap-select-processor
-  "Keys passed on to the processor fn."
-  [f]
-  (fn [{imperative       :imperative
-        {:keys [in out]} :bindings
-        :as              process} msgs]
-    (-> process
-        (select-keys processor-keys)
-        (merge imperative)
-        (assoc :in in :out out)
-        (f msgs))))
-
-(defn- close-tailers!
-  [process]
-  (doseq [t (:tailers process)]
-    (close-tailer! t))
-  (doseq [t (-> process
-                (:imperative)
-                (:tailers)
-                (vals))]
-    (close-tailer! t)))
-
 (defn- processor-snapshot
   [process]
   (try
@@ -951,6 +914,38 @@
         (error-fn p e)
         true))))
 
+(def ^:private processor-keys
+  "The keys that are passed along to processor fn."
+  [:id
+   :type
+   :system
+   :queue-opts
+   :types
+   :topics
+   :parsed
+   :error-queue
+   :strategy
+   :snapshot-hash
+   :opts])
+
+(defn- wrap-select-processor
+  [handler]
+  (fn [{:keys [imperative parsed]
+        :as   process} msgs]
+    (-> process
+        (select-keys processor-keys)
+        (merge imperative)
+        (assoc :in (:in parsed)
+               :out (:out parsed))
+        (handler msgs))))
+
+(defn log-processor-error
+  [{{id    :id
+     :keys [in out]
+     :or   {in  "source"
+            out "sink"}} :parsed} e]
+  (log/error e (format "%s (%s -> %s)" id in out)))
+
 (defn- get-error-fn
   [{q :error-queue}]
   (let [a (some-> q appender)]
@@ -961,19 +956,122 @@
              (ex-data)
              (persistent-attempt p))))))
 
-(defn- apply-middleware
+(defn- wrap-catch-error
+  [handler]
+  (fn [process msgs]
+    (err/on-error (processor-error process msgs)
+      (handler process msgs))))
+
+(defn- rename-keys
+  [key-map m]
+  (cond-> m
+    key-map (set/rename-keys key-map)))
+
+(defn- wrap-msg-keys
+  [handler in-map out-map]
+  (fn [process msgs]
+    (some->> msgs
+             (rename-keys in-map)
+             (handler process)
+             (rename-keys out-map))))
+
+(defn- wrap-msg-filter
+  [handler filter-fn]
+  (fn [process msgs]
+    (some->> msgs
+             (filter-fn)
+             (handler process))))
+
+(defn- wrap-imperative
+  [handler in-map out-map]
+  (fn [{a   :appenders
+        t   :tailers
+        :as process} msgs]
+    (cond-> process
+      t    (assoc :tailers (rename-keys in-map t))
+      a    (assoc :appenders (rename-keys out-map a))
+      true (handler msgs))))
+
+(defn- wrap-guard-out
+  [handler]
+  (fn [process msgs]
+    (let [r (handler process msgs)]
+      (when (-> process
+                (:parsed)
+                (:out))
+        r))))
+
+(defn- topics-filter
+  [values msgs]
+  (reduce-kv
+   (fn [m id msg]
+     (or (some->> values
+                  (select-keys (:q/topics msg))
+                  (not-empty)
+                  (assoc msg :q/topics)
+                  (assoc m id))
+         m))
+   nil
+   msgs))
+
+(defn- types-filter
+  [values msgs]
+  (->> msgs
+       (filter #(some #{(:q/type (val %))} values))
+       (into {})
+       (not-empty)))
+
+(defn- msg-filter-fn
+  [{:keys [types topics]}]
+  (cond
+    topics (partial topics-filter topics)
+    types  (partial types-filter types)
+    :else  identity))
+
+(defn- get-handler
+  [{f  :fn
+    id :id}]
+  (or (get-method processor (or f id))
+      (-> "Could not resolve processor :fn"
+          (ex-info {:id id})
+          (throw))))
+
+(defn- get-processor-fn
+  [{{:keys [id in out tailers appenders]
+     :as   parsed} :parsed}]
+  (let [rev       (set/map-invert in)
+        t         (set/map-invert tailers)
+        a         (set/map-invert appenders)
+        filter-fn (msg-filter-fn parsed)]
+    (-> parsed
+        (get-handler)
+        (wrap-guard-out)
+        (wrap-imperative t a)
+        (wrap-msg-filter filter-fn)
+        (wrap-msg-keys rev out)
+        (wrap-catch-error)
+        (wrap-select-processor))))
+
+(defn- processor-handlers
   [process]
-  (let [f  (get-error-fn process)
-        mw (comp wrap-select-processor
-                 wrap-catch-error)]
-    (-> process
-        (util/assoc-nil :error-fn f)
-        (update :fn mw))))
+  (-> process
+      (assoc :error-fn (get-error-fn process))
+      (assoc :fn (get-processor-fn process))))
+
+(defn- close-tailers!
+  [process]
+  (doseq [t (:tailers process)]
+    (close-tailer! t))
+  (doseq [t (-> process
+                (:imperative)
+                (:tailers)
+                (vals))]
+    (close-tailer! t)))
 
 (defn- processor-loop
   [process]
   (try
-    (let [p (apply-middleware process)]
+    (let [p (processor-handlers process)]
       (persistent-recover p)
       (while (and (continue? p)
                   (processor-step p))))
@@ -1147,80 +1245,29 @@
         (merge (start-impl process unblock start-imperative))
         (assoc :unblock unblock))))
 
-(defn- coerce-cardinality-impl
-  [[t form]]
-  (case t
-    :many-1 (first form)
-    form))
+(defn- ensure-done
+  [{:keys [futures]}]
+  (when futures
+    (doall (map deref futures))))
 
-(s/def :impl/fn fn?)
+(defn start-processor!
+  [{:keys [id state]
+    :as   process}]
+  (if (compare-and-set! state nil ::started)
+    (do (log/info "Starting" id)
+        (ensure-done process)
+        (start-processor-impl process))
+    process))
 
-(s/def ::id
-  (s*/non-conformer
-   (s/or :k qualified-keyword?
-         :s string?)))
-
-(s/def ::id-many-1
-  (s/coll-of ::id
-             :distinct true
-             :kind #(or (sequential? %) (set? %))
-             :count 1))
-
-(s/def ::id-many
-  (s/coll-of ::id
-             :distinct true
-             :kind #(or (sequential? %) (set? %))
-             :min-count 2))
-
-(s/def :one/in
-  (s*/conform-to
-    (s/or :one    ::id
-          :many-1 ::id-many-1)
-    coerce-cardinality-impl))
-
-(s/def :any/in
-  (s*/conform-to
-    (s/or :one    ::id
-          :many   ::id-many
-          :many-1 ::id-many-1)
-    coerce-cardinality-impl))
-
-(s/def :one/out    :one/in)
-(s/def :any/out    :any/in)
-(s/def :many/out   ::id-many)
-(s/def :many/alts  ::id-many)
-(s/def ::tailers   :any/in)
-(s/def ::appenders :any/out)
-
-(s/def ::source
-  (s/keys :req-un [:one/out]))
-
-(s/def ::sink
-  (s/keys :req-un [:impl/fn :any/in]))
-
-(s/def ::join
-  (s/keys :req-un [:impl/fn :any/in :one/out]))
-
-(s/def ::join-fork
-  (s/keys :req-un [:impl/fn :any/in :many/out]))
-
-(s/def ::imperative
-  (s/keys :req-un [:impl/fn :any/in (or ::tailers ::appenders)]
-          :opt-un [:one/out]))
-
-(s/def ::processor-impl
-  (s/or ::imperative ::imperative
-        ::join-fork  ::join-fork
-        ::join       ::join
-        ::source     ::source
-        ::sink       ::sink))
-
-(defn- parse-processor-impl
-  [process]
-  (let [[t p] (cutil/parse ::processor-impl process)]
-    (-> p
-        (assoc :type t)
-        (assoc :uid (:id p)))))
+(defn stop-processor!
+  [{:keys [id state unblock]
+    :as   process}]
+  (if (compare-and-set! state ::started ::stopped)
+    (do (log/info "Stopping" id)
+        (when unblock (reset! unblock true))
+        (ensure-done process)
+        (assoc process :state (atom nil)))
+    process))
 
 (defn- get-one-q
   [g id]
@@ -1339,36 +1386,144 @@
 
 (defn- build-graph
   [{p :processors :as g}]
-  (let [p (map parse-processor-impl p)]
-    (-> g
-        (dissoc :processors)
-        (build-queues p)
-        (build-processors p)
-        (build-topology))))
+  (-> g
+      (dissoc :processors)
+      (build-queues p)
+      (build-processors p)
+      (build-topology)))
 
-(defn- ensure-done
-  [{:keys [futures]}]
-  (when futures
-    (doall (map deref futures))))
+(defn- parse-bindings
+  [bindings]
+  (let [b (vals bindings)]
+    (case (count b)
+      1 (first b)
+      b)))
 
-(defn start-processor!
-  [{:keys [id state]
-    :as   process}]
-  (if (compare-and-set! state nil ::started)
-    (do (log/info "Starting" id)
-        (ensure-done process)
-        (start-processor-impl process))
-    process))
+(defn- parse-processor
+  [[t {:keys [id types topics in out opts tailers appenders]
+       :as   parsed}]]
+  (cutil/some-entries
+   (case t
+     ::source {:id   id
+               :uid  id
+               :out  id
+               :type t
+               :opts opts}
+     {:id        id
+      :uid       id
+      :type      t
+      :types     types
+      :topics    topics
+      :in        (parse-bindings in)
+      :out       (parse-bindings out)
+      :tailers   (parse-bindings tailers)
+      :appenders (parse-bindings appenders)
+      :parsed    parsed
+      :opts      opts})))
 
-(defn stop-processor!
-  [{:keys [id state unblock]
-    :as   process}]
-  (if (compare-and-set! state ::started ::stopped)
-    (do (log/info "Stopping" id)
-        (when unblock (reset! unblock true))
-        (ensure-done process)
-        (assoc process :state (atom nil)))
-    process))
+(defn- coerce-many-cardinality
+  [[t form]]
+  (case t
+    :one  [form]
+    :many form))
+
+(defn- distinct-vals?
+  [m]
+  (apply distinct? (vals m)))
+
+(s/def ::fn qualified-keyword?)
+(s/def ::id qualified-keyword?)
+
+(s/def ::id-one
+  (s/and (s/map-of keyword ::id :count 1)
+         distinct-vals?))
+
+(s/def ::id-many
+  (s/and (s/map-of keyword ::id :min-count 2)
+         distinct-vals?))
+
+(s/def :any/in
+  (s*/non-conformer
+   (s/or :one  ::id-one
+         :many ::id-many)))
+
+(s/def :one/in     ::id-one)
+(s/def :one/out    ::id-one)
+(s/def :any/out    :any/in)
+(s/def :many/out   ::id-many)
+(s/def :many/alts  ::id-many)
+(s/def ::tailers   :any/in)
+(s/def ::appenders :any/out)
+
+(s/def ::types
+  (s*/conform-to
+    (s/or :one  ::id
+          :many (s/coll-of ::id))
+    coerce-many-cardinality))
+
+(s/def ::topics ::types)
+
+(s/def ::generic
+  (s/keys :opt-un [::fn ::types ::topics]))
+
+(s/def ::sink
+  (s/merge (s/keys :req-un [:any/in])
+           ::generic))
+
+(s/def ::join
+  (s/merge (s/keys :req-un [:any/in :one/out])
+           ::generic))
+
+(s/def ::join-fork
+  (s/merge (s/keys :req-un [:any/in :many/out])
+           ::generic))
+
+(s/def ::imperative
+  (s/merge (s/keys :req-un [:any/in (or ::tailers ::appenders)]
+                   :opt-un [:one/out])
+           ::generic))
+
+(s/def ::source
+  (s/and (s/keys :req-un [::id])
+         #(not (contains? % :in))
+         #(not (contains? % :out))))
+
+(s/def ::processor-impl
+  (s/or ::imperative ::imperative
+        ::join-fork  ::join-fork
+        ::join       ::join
+        ::source     ::source
+        ::sink       ::sink))
+
+(s/def ::processor
+  (s/and ::processor-impl
+         (s/conformer parse-processor)))
+
+(s/def ::processors
+  (s/coll-of ::processor :kind sequential?))
+
+(s/def ::graph
+  (s/keys :req-un [::processors ::id]))
+
+(defn- parse-graph
+  [g]
+  (-> (cutil/parse ::graph g)
+      (assoc :config g)))
+
+(defn graph
+  [g]
+  (-> g
+      (parse-graph)
+      (build-graph)))
+
+(defn topology
+  [graph]
+  (:topology graph))
+
+(defn isomorphic?
+  [g1 g2]
+  (= (topology g1)
+     (topology g2)))
 
 (defn start-graph!
   [graph]
@@ -1397,6 +1552,16 @@
        (dorun))
   graph)
 
+(defn send!
+  ([g tx]
+   (send! g nil tx))
+  ([{p           :processors
+     {s :source} :config
+     :as         g} source msg]
+   (if-let [a (get p (or source s))]
+     (write a msg)
+     (throw (ex-info "Could not find source" {:id source})))))
+
 (defn messages
   "Returns a lazy list of all remaining messages."
   [tailer]
@@ -1424,208 +1589,6 @@
     (zipmap
      (map :id queues*)
      (map all-messages queues*))))
-
-(s/def ::id-map          (s/map-of keyword? ::id))
-(s/def ::id-map-distinct (s/and ::id-map #(apply distinct? (vals %))))
-(s/def ::in              ::id-map-distinct)
-(s/def ::out             ::id-map-distinct)
-(s/def :map/tailers      ::id-map)
-(s/def :map/appenders    ::id-map)
-(s/def ::fn              ::id)
-
-(s/def :map/source
-  (s/and (s/keys :req-un [::id])
-         #(not (contains? % :in))
-         #(not (contains? % :out))))
-
-(defn- coerce-cardinality
-  [[t form]]
-  (case t
-    :one  [form]
-    :many form))
-
-(s/def ::types
-  (s*/conform-to
-    (s/or :one  ::id
-          :many (s/coll-of ::id))
-    coerce-cardinality))
-
-(s/def ::topics ::types)
-
-(s/def ::processor-generic
-  (s/keys :req-un [::id (or ::in ::out)]
-          :opt-un [:map/tailers
-                   :map/appenders
-                   ::fn
-                   ::types
-                   ::topics]))
-
-(s/def ::processor
-  (s/or ::processor ::processor-generic
-        ::source    :map/source))
-
-(s/def ::processors
-  (s/coll-of ::processor :kind sequential?))
-
-(s/def ::graph
-  (s/keys :req-un [::processors ::id]))
-
-(defmulti processor
-  "Analogous to Kafka processors. No default method."
-  (constantly nil))
-
-(defn- topics-filter
-  [values msgs]
-  (reduce-kv
-   (fn [m id msg]
-     (or (some->> values
-                  (select-keys (:q/topics msg))
-                  (not-empty)
-                  (assoc msg :q/topics)
-                  (assoc m id))
-         m))
-   nil
-   msgs))
-
-(defn- types-filter
-  [values msgs]
-  (->> msgs
-       (filter #(some #{(:q/type (val %))} values))
-       (into {})
-       (not-empty)))
-
-(defn- rename-keys
-  [key-map m]
-  (cond-> m
-    key-map (set/rename-keys key-map)))
-
-(defn- wrap-guard-out
-  [handler]
-  (fn [process msgs]
-    (let [r (handler process msgs)]
-      (when (-> process
-                (:bindings)
-                (:out))
-        r))))
-
-(defn- wrap-msg-keys
-  [handler in-map out-map]
-  (fn [process msgs]
-    (some->> msgs
-             (rename-keys in-map)
-             (handler process)
-             (rename-keys out-map))))
-
-(defn- wrap-msg-filter
-  [handler filter-fn]
-  (fn [process msgs]
-    (some->> msgs
-             (filter-fn)
-             (handler process))))
-
-(defn- wrap-imperative
-  [handler in-map out-map]
-  (fn [{a   :appenders
-        t   :tailers
-        :as process} msgs]
-    (cond-> process
-      t    (assoc :tailers (rename-keys in-map t))
-      a    (assoc :appenders (rename-keys out-map a))
-      true (handler msgs))))
-
-(defn- msgs->topics
-  [msgs]
-  (->> msgs
-       (vals)
-       (mapcat (comp keys :q/topics))
-       (set)))
-
-(defn- get-handler
-  [{f  :fn
-    id :id}]
-  (or (get-method processor (or f id))
-      (throw (ex-info "Unresolved fn" {:id id}))))
-
-(defn- msg-filter-fn
-  [{:keys [types topics]}]
-  (cond
-    topics (partial topics-filter topics)
-    types  (partial types-filter types)
-    :else  identity))
-
-(defn- processor->fn
-  [{:keys [id in out tailers appenders]
-    :as   parsed}]
-  (let [rev       (set/map-invert in)
-        t         (set/map-invert tailers)
-        a         (set/map-invert appenders)
-        filter-fn (msg-filter-fn parsed)]
-    (-> parsed
-        (get-handler)
-        (wrap-guard-out)
-        (wrap-imperative t a)
-        (wrap-msg-filter filter-fn)
-        (wrap-msg-keys rev out))))
-
-(defn- parse-processor
-  [process]
-  (let [[t parsed]          process
-        {:keys [id
-                in
-                out
-                topics
-                opts
-                tailers
-                appenders]} parsed]
-    (cutil/some-entries
-     (case t
-       ::processor {:id        id
-                    :in        (vals in)
-                    :out       (vals out)
-                    :topics    topics
-                    :tailers   (vals tailers)
-                    :appenders (vals appenders)
-                    :bindings  (cutil/some-entries
-                                {:in        in
-                                 :out       out
-                                 :tailers   tailers
-                                 :appenders appenders})
-                    :opts      opts
-                    :fn        (processor->fn parsed)}
-       ::source    {:id   id
-                    :out  id
-                    :opts opts}))))
-
-(defn- parse-graph
-  [g]
-  (-> (cutil/parse ::graph g)
-      (assoc :config g)
-      (update :processors (partial mapv parse-processor))))
-
-(defn graph
-  [g]
-  (-> g
-      (parse-graph)
-      (build-graph)))
-
-(defn topology
-  [graph]
-  (:topology graph))
-
-(defn isomorphic?
-  [g1 g2]
-  (= (topology g1)
-     (topology g2)))
-
-(defn send!
-  ([g tx]
-   (send! g nil tx))
-  ([{p           :processors
-     {s :source} :config
-     :as         g} source msg]
-   (if-let [a (get p (or source s))]
-     (write a msg)
-     (throw (ex-info "Could not find source" {:id source})))))
 
 ;; Data file management
 

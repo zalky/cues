@@ -21,49 +21,48 @@
    (deref done ms false)))
 
 (t/deftest parse-processor-impl-test
-  (let [parse (partial s/conform ::q/processor-impl)]
-    (is (= (parse {:id  ::processor
-                   :fn  identity
-                   :out ::out})
-           (parse {:id  ::processor
-                   :fn  identity
-                   :out [::out]})
-           [::q/source
-            {:id  ::processor
-             :fn  identity
-             :out ::out}]))
+  (let [parse #(first (s/conform ::q/processor-impl %))]
+    (is (= (parse {:id ::source})
+           ::q/source))
     (is (= (parse {:id ::processor
-                   :fn identity
-                   :in ::in})
-           (parse {:id ::processor
-                   :fn identity
-                   :in [::in]})
-           [::q/sink
-            {:id ::processor
-             :fn identity
-             :in ::in}]))
+                   :in {:in ::in}})
+           ::q/sink))
     (is (= (parse {:id  ::processor
-                   :fn  identity
-                   :in  ::in
-                   :out ::out})
-           (parse {:id  ::processor
-                   :fn  identity
-                   :in  [::in]
-                   :out [::out]})
-           [::q/join
-            {:id  ::processor
-             :fn  identity
-             :in  ::in
-             :out ::out}]))
+                   :in  {:in ::in}
+                   :out {:out ::out}})
+           ::q/join))
     (is (= (parse {:id  ::processor
-                   :fn  identity
-                   :in  ::in
-                   :out [::out-1 ::out-2]})
-           [::q/join-fork
-            {:id  ::processor
-             :fn  identity
-             :in  ::in
-             :out [::out-1 ::out-2]}]))))
+                   :in  {:in-1 ::in-1
+                         :in-2 ::in-2}
+                   :out {:out-1 ::out-1}})
+           ::q/join))
+    (is (= (parse {:id  ::processor
+                   :in  {:in ::in}
+                   :out {:out-1 ::out-1
+                         :out-2 ::out-2}})
+           ::q/join-fork))
+    (is (= (parse {:id  ::processor
+                   :in  {:in-1 ::in-1
+                         :in-2 ::in-2}
+                   :out {:out-1 ::out-1
+                         :out-2 ::out-2}})
+           ::q/join-fork))
+    (is (= (parse {:id        ::processor
+                   :in        {:in ::in}
+                   :out       {:out-1 ::out-1}
+                   :appenders {:a ::appenders}})
+           ::q/imperative))
+    (is (= (parse {:id        ::processor
+                   :in        {:in ::in}
+                   :out       {:out-1 ::out-1}
+                   :tailers   {:t ::tailer}})
+           ::q/imperative))
+    (is (= (parse {:id        ::processor
+                   :in        {:in ::in}
+                   :out       {:out-1 ::out-1}
+                   :tailers   {:t ::tailer}
+                   :appenders {:a ::appenders}})
+           ::q/imperative))))
 
 (defmethod q/processor ::map-reduce
   [{{r-fn     :reduce-fn
@@ -501,9 +500,9 @@
                  :in     {:in         ::q1
                           :in-ignored ::q2}
                  :out    {:out ::tx}}
-        f       (#'q/processor->fn parsed)
-        process {:bindings (select-keys parsed [:in :out])
-                 :system   {:component true}}]
+        f       (#'q/get-processor-fn {:parsed parsed})
+        process {:parsed parsed
+                 :system {:component true}}]
     (is (fn? f))
     (is (nil? (f process nil)))
     (is (nil? (f process {})))
