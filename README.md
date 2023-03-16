@@ -790,6 +790,20 @@ Forks write messages to multiple queues:
        :log ::log}}
 ```
 
+In a fork processor you can conditionally write to different cues
+based on which bindings you return:
+
+```
+(defmethod q/processor ::join-fork-conditional
+  [_ msgs]
+  (let [n   (transduce (map :x) + (vals msgs))
+        msg {:x n}]
+    {:even (when (even? n) msg)
+     :odd  (when (odd? n) msg)}))
+```
+
+
+
 And join-forks do both:
 
 ```clj

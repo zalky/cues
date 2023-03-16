@@ -556,7 +556,7 @@
   before each processor step. Taken together, persistent-snapshot,
   persistent-attempt, and persistent-recover implement message
   delivery semantics in Cues processors."
-  (comp :strategy :config))
+  :strategy)
 
 (defmulti persistent-attempt
   "Persists message to processor output queues, as well as attempt data
@@ -565,14 +565,14 @@
   persistent-recover implement message delivery semantics in Cues
   processors."
   (fn [process _]
-    (-> process :config :strategy)))
+    (:strategy process)))
 
 (defmulti persistent-recover
   "Recovers processor tailer indices from backing queue once on
   processor start. Taken together, persistent-snapshot,
   persistent-attempt, and persistent-recover implement message
   delivery semantics in Cues processors."
-  (comp :strategy :config))
+  :strategy)
 
 (defn- snapshot?
   [msg]
@@ -602,10 +602,16 @@
   {:q/type :q.type.try/attempt-nil
    :q/hash attempt-hash})
 
+(defn- processor-config
+  [process]
+  (-> process
+      (select-keys [:id :topics :types :queue-opts :strategy])
+      (merge (:bindings process))))
+
 (defn- processor-error
-  [{config :config} msgs]
+  [process msgs]
   {:q/type            :q.type.err/processor
-   :err.proc/config   config
+   :err.proc/config   (processor-config process)
    :err.proc/messages msgs})
 
 (defmethod persistent-snapshot ::exactly-once
@@ -803,8 +809,8 @@
    (throw-interrupt!)))
 
 (defn- merge-meta?
-  [config]
-  (get-in config [:queue-opts :queue-meta] true))
+  [process]
+  (get-in process [:queue-opts :queue-meta] true))
 
 (defn- merge-meta-in
   [in]
@@ -822,9 +828,9 @@
    out))
 
 (defn- merge-meta
-  [in out config]
+  [in out process]
   (when out
-    (if (merge-meta? config)
+    (if (merge-meta? process)
       (if-let [m (merge-meta-in in)]
         (assoc-meta-out out m)
         out)
@@ -861,55 +867,55 @@
             :else     zip-read!!)]
     (f process)))
 
-(defn- select-processor
-  "Keys passed on to the processor fn."
-  [{imperative :imperative
-    :as        process}]
-  (merge process imperative))
-
 (defn- run-fn!!
   [{f         :fn
     appender  :appender
     result-fn :result-fn
-    config    :config
     :or       {result-fn get-result}
     :as       process}]
   (if-let [in (processor-read process)]
-    (let [out (-> process
-                  (select-processor)
-                  (f in))]
+    (let [out (f process in)]
       (when appender
-        (->> (merge-meta in out config)
+        (->> (merge-meta in out process)
              (result-fn process))))
     (recover-mem process)))
 
 (defn log-processor-error
-  [{{:keys [id in out]
+  [{{id    :id
+     :keys [in out]
      :or   {in  "source"
-            out "sink"}} :config} e]
+            out "sink"}} :bindings} e]
   (log/error e (format "%s (%s -> %s)" id in out)))
 
-(defn- get-error-fn
-  [{:keys [error-queue]}]
-  (let [a (some-> error-queue appender)]
-    (fn [process e]
-      (let [p (assoc process :appender a)]
-        (log-processor-error process e)
-        (->> (err/error e)
-             (ex-data)
-             (persistent-attempt p))))))
-
-(defn- wrap-processor-fn
+(defn- wrap-catch-error
   [f]
   (fn [process msgs]
     (err/on-error (processor-error process msgs)
       (f process msgs))))
 
-(defn- wrap-error-handling
-  [process]
-  (-> process
-      (util/assoc-nil :error-fn (get-error-fn process))
-      (update :fn wrap-processor-fn)))
+(def ^:private processor-keys
+  "The keys that are passed along to processor fn."
+  [:id
+   :type
+   :system
+   :queue-opts
+   :bindings
+   :error-queue
+   :strategy
+   :snapshot-hash
+   :opts])
+
+(defn- wrap-select-processor
+  "Keys passed on to the processor fn."
+  [f]
+  (fn [{imperative       :imperative
+        {:keys [in out]} :bindings
+        :as              process} msgs]
+    (-> process
+        (select-keys processor-keys)
+        (merge imperative)
+        (assoc :in in :out out)
+        (f msgs))))
 
 (defn- close-tailers!
   [process]
@@ -945,17 +951,34 @@
         (error-fn p e)
         true))))
 
-(defn- processor-loop*
+(defn- get-error-fn
+  [{q :error-queue}]
+  (let [a (some-> q appender)]
+    (fn [process e]
+      (let [p (assoc process :appender a)]
+        (log-processor-error process e)
+        (->> (err/error e)
+             (ex-data)
+             (persistent-attempt p))))))
+
+(defn- apply-middleware
+  [process]
+  (let [f  (get-error-fn process)
+        mw (comp wrap-select-processor
+                 wrap-catch-error)]
+    (-> process
+        (util/assoc-nil :error-fn f)
+        (update :fn mw))))
+
+(defn- processor-loop
   [process]
   (try
-    (persistent-recover process)
-    (while (and (continue? process)
-                (processor-step process)))
+    (let [p (apply-middleware process)]
+      (persistent-recover p)
+      (while (and (continue? p)
+                  (processor-step p))))
     (finally
       (close-tailers! process))))
-
-(def ^:private processor-loop
-  (comp processor-loop* wrap-error-handling))
 
 (defn- join-tailers
   [{:keys [uid in]} unblock]
@@ -972,8 +995,8 @@
            (doall)))
 
 (defn- backing-queue
-  [{:keys [id uid config]}]
-  (let [p (-> config
+  [{:keys [uid] :as process}]
+  (let [p (-> process
               (:queue-opts)
               (:queue-path))]
     (queue uid {:transient  true
@@ -1090,7 +1113,6 @@
   (isa? (:type x) ::processor))
 
 (defmulti start-processor-impl
-  "Analogous to Kafka processors."
   :type)
 
 (defmethod start-processor-impl ::source
@@ -1210,39 +1232,32 @@
     (map (partial get-one-q g) ids)
     (get-one-q g ids)))
 
-(def ^:private processor-config-keys
-  [:id :in :out :tailers :appenders :topics :types])
-
 (defn- build-config
-  "If default queues opts are provided, they are also used for processor
-  backing queues."
-  [g process]
-  (let [default (get-in g [:queue-opts ::default])
-        s       (:strategy g ::exactly-once)]
-    (-> process
-        (select-keys processor-config-keys)
-        (assoc :queue-opts default)
-        (assoc :strategy s))))
+  [{system   :system
+    strategy :strategy
+    opts     :queue-opts
+    :or      {strategy ::exactly-once}} process]
+  (cond-> process
+    system   (assoc :system system)
+    strategy (assoc :strategy strategy)
+    opts     (assoc :queue-opts (::default opts))
+    true     (assoc :state (atom nil))))
 
 (defn- build-processor
-  [{id     :id
-    e      :error-queue
-    system :system
-    :as    g} {t   :tailers
-               a   :appenders
-               in  :in
-               out :out
-               :as process}]
-  (cond-> process
-    system  (assoc :system system)
-    in      (assoc :in (get-q g in))
-    out     (assoc :out (get-q g out))
-    e       (assoc :error-queue (get-q g e))
-    t       (assoc-in [:imperative :tailers] (get-q g t))
-    a       (assoc-in [:imperative :appenders] (get-q g a))
-    process (assoc :config (build-config g process))
-    id      (update :uid (partial combined-id id))
-    true    (assoc :state (atom nil))))
+  [{id    :id
+    error :error-queue
+    :as   g} {in  :in
+              out :out
+              t   :tailers
+              a   :appenders
+              :as process}]
+  (cond-> (build-config g process)
+    id    (update :uid #(combined-id id %))
+    in    (assoc :in (get-q g in))
+    out   (assoc :out (get-q g out))
+    error (assoc :error-queue (get-q g error))
+    t     (assoc-in [:imperative :tailers] (get-q g t))
+    a     (assoc-in [:imperative :appenders] (get-q g a))))
 
 (defn- build-processors
   [g processors]
@@ -1323,9 +1338,9 @@
        (assoc graph :topology)))
 
 (defn- build-graph
-  [{p :processors :as config}]
+  [{p :processors :as g}]
   (let [p (map parse-processor-impl p)]
-    (-> config
+    (-> g
         (dissoc :processors)
         (build-queues p)
         (build-processors p)
@@ -1456,6 +1471,7 @@
   (s/keys :req-un [::processors ::id]))
 
 (defmulti processor
+  "Analogous to Kafka processors. No default method."
   (constantly nil))
 
 (defn- topics-filter
@@ -1488,7 +1504,7 @@
   (fn [process msgs]
     (let [r (handler process msgs)]
       (when (-> process
-                (:config)
+                (:bindings)
                 (:out))
         r))))
 
@@ -1569,6 +1585,11 @@
                     :topics    topics
                     :tailers   (vals tailers)
                     :appenders (vals appenders)
+                    :bindings  (cutil/some-entries
+                                {:in        in
+                                 :out       out
+                                 :tailers   tailers
+                                 :appenders appenders})
                     :opts      opts
                     :fn        (processor->fn parsed)}
        ::source    {:id   id

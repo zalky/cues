@@ -16,7 +16,7 @@
 
 (defn done?
   ([done]
-   (done? done 10000))
+   (done? done 1000))
   ([done ms]
    (deref done ms false)))
 
@@ -423,8 +423,8 @@
                {::qt/error [{:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id         ::pipe-error
-                                                 :in         ::s1
-                                                 :out        ::q1
+                                                 :in         {:in ::s1}
+                                                 :out        {:out ::q1}
                                                  :queue-opts {:queue-meta #{:q/t}}
                                                  :strategy   ::q/exactly-once}
                              :err.proc/messages {::s1 {:x      1
@@ -433,8 +433,8 @@
                             {:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id         ::pipe-error
-                                                 :in         ::s1
-                                                 :out        ::q1
+                                                 :in         {:in ::s1}
+                                                 :out        {:out ::q1}
                                                  :queue-opts {:queue-meta #{:q/t}}
                                                  :strategy   ::q/exactly-once}
                              :err.proc/messages {::s1 {:x      3
@@ -496,14 +496,14 @@
                :system system)})
 
 (t/deftest processor-fn-test
-  (let [config  {:id     ::processor-a
+  (let [parsed  {:id     ::processor-a
                  :topics [::doc]
                  :in     {:in         ::q1
                           :in-ignored ::q2}
                  :out    {:out ::tx}}
-        f       (#'q/processor->fn config)
-        process {:config config
-                 :system {:component true}}]
+        f       (#'q/processor->fn parsed)
+        process {:bindings (select-keys parsed [:in :out])
+                 :system   {:component true}}]
     (is (fn? f))
     (is (nil? (f process nil)))
     (is (nil? (f process {})))
@@ -780,8 +780,8 @@
                    (update ::qt/error qt/simplify-exceptions))
                {::qt/error [{:q/type            :q.type.err/processor
                              :err.proc/config   {:id         ::handled-error
-                                                 :in         ::s1
-                                                 :out        ::q1
+                                                 :in         {:in ::s1}
+                                                 :out        {:out ::q1}
                                                  :queue-opts {:queue-meta false}
                                                  :strategy   ::q/exactly-once}
                              :err.proc/messages #:cues.queue-test{:s1 {:x 1}}
@@ -921,17 +921,15 @@
                        (update ::qt/error qt/simplify-exceptions))
                    {::qt/error [{:q/type            :q.type.err/processor
                                  :err.proc/config   {:id         ::map-reduce
-                                                     :in         ::s1
-                                                     :out        ::q1
-                                                     :queue-opts nil
+                                                     :in         {:in ::s1}
+                                                     :out        {:out ::q1}
                                                      :strategy   ::q/exactly-once}
                                  :err.proc/messages {:x 2}
                                  :err/cause         {:cause "Failed after write"}}
                                 {:q/type            :q.type.err/processor
                                  :err.proc/config   {:id         ::map-reduce
-                                                     :in         ::s1
-                                                     :out        ::q1
-                                                     :queue-opts nil
+                                                     :in         {:in ::s1}
+                                                     :out        {:out ::q1}
                                                      :strategy   ::q/exactly-once}
                                  :err.proc/messages {:x 3}
                                  :err/cause         {:cause "Failed after write"}}]
