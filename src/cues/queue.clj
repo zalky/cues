@@ -222,6 +222,7 @@
   [{t   :tailer-impl
     d   :dirty
     :as tailer} direction]
+  {:pre [(tailer? tailer)]}
   (tail/set-direction! t direction)
   (reset! d true)
   tailer)
@@ -231,6 +232,7 @@
   [{t   :tailer-impl
     d   :dirty
     :as tailer}]
+  {:pre [(tailer? tailer)]}
   (tail/to-end! t)
   (reset! d false)
   tailer)
@@ -240,6 +242,7 @@
   [{t   :tailer-impl
     d   :dirty
     :as tailer}]
+  {:pre [(tailer? tailer)]}
   (tail/to-start! t)
   (reset! d false)
   tailer)
@@ -253,6 +256,7 @@
   [{t   :tailer-impl
     d   :dirty
     :as tailer}]
+  {:pre [(tailer? tailer)]}
   (if-not @d
     (tail/index t)
     (-> "Cannot take the index of a tailer after setting direction without first doing a read"
@@ -270,6 +274,7 @@
 (defn close-tailer!
   "Closes the given tailer."
   [tailer]
+  {:pre [(tailer? tailer)]}
   (-> tailer
       (:tailer-impl)
       (tail/underlying-tailer)
@@ -289,6 +294,7 @@
   [{t   :tailer-impl
     d   :dirty
     :as tailer} i]
+  {:pre [(tailer? tailer)]}
   (if (zero? i)
     (tail/to-start! t)
     (tail/to-index! t i))
