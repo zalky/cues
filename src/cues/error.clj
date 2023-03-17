@@ -35,6 +35,6 @@
      (do ~@body)
      (catch InterruptedException e#
        (throw e#))
-     (catch Throwable e#
+     (catch Exception e#
        (throw (error ~error-expr e#)))))
 

@@ -785,8 +785,8 @@
                (to-end)
                (read-with-hash)
                (recover t process)))
-    (catch InterruptedException e false)
-    (catch Throwable e
+    (catch InterruptedException e (throw e))
+    (catch Exception e
       (log/error e "Could not recover tailers")
       false)))
 
@@ -899,8 +899,8 @@
     (-> process
         (snapshot-unblock)
         (persistent-snapshot))
-    (catch InterruptedException e false)
-    (catch Throwable e
+    (catch InterruptedException e (throw e))
+    (catch Exception e
       (log/error e "Could not snapshot tailers")
       false)))
 
@@ -912,8 +912,8 @@
   (let [p (processor-snapshot process)]
     (try
       (persistent-attempt p (run-fn p))
-      (catch InterruptedException e false)
-      (catch Throwable e
+      (catch InterruptedException e (throw e))
+      (catch Exception e
         (error-fn p e)
         true))))
 
@@ -1245,7 +1245,8 @@
 (defn- ensure-done
   [{:keys [futures]}]
   (when futures
-    (doall (map deref futures))))
+    (doseq [r futures]
+      (try @r (catch Exception e)))))
 
 (defn start-processor!
   [{:keys [id state]
