@@ -725,6 +725,167 @@
       (q/stop-graph! g)
       (q/close-and-delete-graph! g true))))
 
+(defmethod q/processor ::interrupt-fork
+  [{{:keys [done interrupt?]} :opts} {:keys [in-1 in-2]}]
+  (when interrupt?
+    (try
+      (q/throw-interrupt!)
+      (finally (deliver done true))))
+  {:out-1 in-1
+   :out-2 in-2})
+
+(t/deftest exactly-once-join-fork-interrupt-test
+  ;; Same as exactly-once-processor-interrupt-test, but tests exactly
+  ;; once delivery on join-fork intermediary processing loops.
+  (let [p-id   :cues.queue-test.graph.cues.queue-test/interrupt-fork
+        p-tid1 :cues.queue-test.graph.cues.queue-test.interrupt-fork.cues.queue-test/s1
+        p-tid2 :cues.queue-test.graph.cues.queue-test.interrupt-fork.cues.queue-test/s2
+        p-jid1 :cues.queue-test.graph.cues.queue-test.interrupt-fork.cues.queue-test/q1
+        p-jid2 :cues.queue-test.graph.cues.queue-test.interrupt-fork.cues.queue-test/q2
+        p-fid1 :cues.queue-test.graph.cues.queue-test.interrupt-fork.cues.queue-test.q1.cues.queue-test.graph.cues.queue-test.interrupt-fork/fork
+        p-fid2 :cues.queue-test.graph.cues.queue-test.interrupt-fork.cues.queue-test.q2.cues.queue-test.graph.cues.queue-test.interrupt-fork/fork]
+    (let [done-1 (promise)
+          done-2 (promise)
+          done-3 (promise)
+          done-4 (promise)
+          g      (->> {:id         ::graph
+                       :processors [{:id ::s1}
+                                    {:id ::s2}
+                                    {:id   ::interrupt-fork
+                                     :in   {:in-1 ::s1
+                                            :in-2 ::s2}
+                                     :out  {:out-1 ::q1
+                                            :out-2 ::q2}
+                                     :opts {:interrupt? true
+                                            :done       done-1}}
+                                    {:id   ::d2
+                                     :fn   ::done-counter
+                                     :in   {:in p-id}
+                                     :opts {:done    done-2
+                                            :counter (atom 0)
+                                            :n       1}}
+                                    {:id   ::d3
+                                     :fn   ::done-counter
+                                     :in   {:in p-jid1}
+                                     :opts {:done    done-3
+                                            :counter (atom 0)
+                                            :n       1}}
+                                    {:id   ::d4
+                                     :fn   ::done-counter
+                                     :in   {:in p-jid2}
+                                     :opts {:done    done-4
+                                            :counter (atom 0)
+                                            :n       1}}]}
+                      (q/graph)
+                      (q/start-graph!))]
+      (q/send! g ::s1 {:x 1})
+      (q/send! g ::s2 {:x 2})
+      (is (done? done-1))
+      (is (done? done-2))
+      (is (done? done-3))
+      (is (done? done-4))
+      (is (= (q/all-graph-messages g)
+             {::s1   [{:x 1}]
+              ::s2   [{:x 2}]
+              ::q1   []
+              ::q2   []
+              p-id   [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid1 1 p-tid2 1}}]
+              p-jid1 [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid1
+                       :q.try/tailer-indices {p-fid1 1}}]
+              p-jid2 [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid2
+                       :q.try/tailer-indices {p-fid2 1}}]}))
+      (q/stop-graph! g))
+
+    ;; After restarting the graph both messages are delivered, and we
+    ;; can see the subsequent attempt in the backing queue.
+    (let [done-1 (promise)
+          done-2 (promise)
+          done-3 (promise)
+          done-4 (promise)
+          g      (->> {:id         ::graph
+                       :processors [{:id ::s1}
+                                    {:id ::s2}
+                                    {:id  ::interrupt-fork
+                                     :in  {:in-1 ::s1
+                                           :in-2 ::s2}
+                                     :out {:out-1 ::q1
+                                           :out-2 ::q2}}
+                                    {:id   ::done
+                                     :in   {:in ::q1}
+                                     :opts {:done done-1
+                                            :x-n  1}}
+                                    {:id   ::d2
+                                     :fn   ::done-counter
+                                     :in   {:in p-id}
+                                     :opts {:done    done-2
+                                            :counter (atom 0)
+                                            :n       3}}   ; 3 + 1 from intermediary graph
+                                    {:id   ::d3
+                                     :fn   ::done-counter
+                                     :in   {:in p-jid1}
+                                     :opts {:done    done-3
+                                            :counter (atom 0)
+                                            :n       3}}   ; 3 + 1 from intermediary graph
+                                    {:id   ::d4
+                                     :fn   ::done-counter
+                                     :in   {:in p-jid2}
+                                     :opts {:done    done-4
+                                            :counter (atom 0)
+                                            :n       3}}]} ; 3 + 1 from intermediary graph
+                      (q/graph)
+                      (q/start-graph!))]
+      (is (done? done-1))
+      (is (done? done-2))
+      (is (done? done-3))
+      (is (done? done-4))
+      (is (= (q/all-graph-messages g)
+             {::s1   [{:x 1}]
+              ::s2   [{:x 2}]
+              ::q1   [{:x 1}]
+              ::q2   [{:x 2}]
+              p-id   [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid1 1 p-tid2 1}}
+                      {:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid1 1 p-tid2 1}}
+                      {:q/type              :q.type.try/attempt
+                       :q/hash              16620243
+                       :q.try/message-index 1}
+                      {:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-id
+                       :q.try/tailer-indices {p-tid1 2 p-tid2 2}}]
+              p-jid1 [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid1
+                       :q.try/tailer-indices {p-fid1 1}}
+                      {:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid1
+                       :q.try/tailer-indices {p-fid1 1}}
+                      {:q/type              :q.type.try/attempt
+                       :q/hash              -247906398
+                       :q.try/message-index 1}
+                      {:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid1
+                       :q.try/tailer-indices {p-fid1 2}}]
+              p-jid2 [{:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid2
+                       :q.try/tailer-indices {p-fid2 1}}
+                      {:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid2
+                       :q.try/tailer-indices {p-fid2 1}}
+                      {:q/type              :q.type.try/attempt
+                       :q/hash              1360014527
+                       :q.try/message-index 1}
+                      {:q/type               :q.type.try/snapshot
+                       :q.try/proc-id        p-jid2
+                       :q.try/tailer-indices {p-fid2 2}}]}))
+      (q/stop-graph! g)
+      (q/close-and-delete-graph! g true))))
+
 (defmethod q/processor ::handled-error
   [{{:keys [counter]} :opts} {msg :in}]
   (err/on-error {:err/more "context"}
