@@ -21,7 +21,7 @@
    (deref done ms false)))
 
 (t/deftest parse-processor-impl-test
-  (let [parse #(first (s/conform ::q/processor-impl %))]
+  (let [parse #(first (s/conform ::q/processor %))]
     (is (= (parse {:id ::source})
            ::q/source))
     (is (= (parse {:id ::processor
@@ -495,13 +495,13 @@
                :system system)})
 
 (t/deftest processor-fn-test
-  (let [parsed  {:id     ::processor-a
+  (let [config  {:id     ::processor-a
                  :topics [::doc]
                  :in     {:in         ::q1
                           :in-ignored ::q2}
                  :out    {:out ::tx}}
-        f       (#'q/get-processor-fn {:parsed parsed})
-        process {:parsed parsed
+        f       (#'q/get-processor-fn {:config config})
+        process {:config config
                  :system {:component true}}]
     (is (fn? f))
     (is (nil? (f process nil)))

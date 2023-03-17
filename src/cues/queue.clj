@@ -606,22 +606,16 @@
   {:q/type :q.type.try/attempt-nil
    :q/hash attempt-hash})
 
-(defn- select-bindings
-  [process]
-  (-> process
-      (:parsed)
-      (select-keys [:in :out :tailers :appenders])))
-
-(defn- processor-config
-  [process]
-  (-> process
-      (select-keys [:id :queue-opts :strategy :topics :types])
-      (merge (select-bindings process))))
+(defn- error-config
+  [{:keys [config] :as process}]
+  (let [c1 (select-keys process [:id :queue-opts :strategy :topics :types])
+        c2 (select-keys config [:in :out :tailers :appenders])]
+    (merge c1 c2)))
 
 (defn- processor-error
   [process msgs]
   {:q/type            :q.type.err/processor
-   :err.proc/config   (processor-config process)
+   :err.proc/config   (error-config process)
    :err.proc/messages msgs})
 
 (defmethod persistent-snapshot ::exactly-once
@@ -922,7 +916,7 @@
    :queue-opts
    :types
    :topics
-   :parsed
+   :config
    :error-queue
    :strategy
    :snapshot-hash
@@ -930,20 +924,20 @@
 
 (defn- wrap-select-processor
   [handler]
-  (fn [{:keys [imperative parsed]
+  (fn [{:keys [imperative config]
         :as   process} msgs]
     (-> process
         (select-keys processor-keys)
         (merge imperative)
-        (assoc :in (:in parsed)
-               :out (:out parsed))
+        (assoc :in (:in config)
+               :out (:out config))
         (handler msgs))))
 
 (defn log-processor-error
   [{{id    :id
      :keys [in out]
      :or   {in  "source"
-            out "sink"}} :parsed} e]
+            out "sink"}} :config} e]
   (log/error e (format "%s (%s -> %s)" id in out)))
 
 (defn- get-error-fn
@@ -992,12 +986,12 @@
       a    (assoc :appenders (rename-keys out-map a))
       true (handler msgs))))
 
-(defn- wrap-guard-out
+(defn- wrap-guard-no-out
   [handler]
   (fn [process msgs]
     (let [r (handler process msgs)]
       (when (-> process
-                (:parsed)
+                (:config)
                 (:out))
         r))))
 
@@ -1038,14 +1032,14 @@
 
 (defn- get-processor-fn
   [{{:keys [id in out tailers appenders]
-     :as   parsed} :parsed}]
+     :as   config} :config}]
   (let [rev       (set/map-invert in)
         t         (set/map-invert tailers)
         a         (set/map-invert appenders)
-        filter-fn (msg-filter-fn parsed)]
-    (-> parsed
+        filter-fn (msg-filter-fn config)]
+    (-> config
         (get-handler)
-        (wrap-guard-out)
+        (wrap-guard-no-out)
         (wrap-imperative t a)
         (wrap-msg-filter filter-fn)
         (wrap-msg-keys rev out)
@@ -1291,15 +1285,15 @@
     true     (assoc :state (atom nil))))
 
 (defn- build-processor
-  [{id    :id
-    error :error-queue
-    :as   g} {in  :in
+  [{error :error-queue
+    :as   g} {id  :id
+              in  :in
               out :out
               t   :tailers
               a   :appenders
               :as process}]
   (cond-> (build-config g process)
-    id    (update :uid #(combined-id id %))
+    id    (assoc :uid (combined-id (:id g) id))
     in    (assoc :in (get-q g in))
     out   (assoc :out (get-q g out))
     error (assoc :error-queue (get-q g error))
@@ -1400,17 +1394,15 @@
       b)))
 
 (defn- parse-processor
-  [[t {:keys [id types topics in out opts tailers appenders]
-       :as   parsed}]]
+  [[t {:keys [id types topics in out tailers appenders opts]
+       :as   config}]]
   (cutil/some-entries
    (case t
      ::source {:id   id
-               :uid  id
                :out  id
                :type t
                :opts opts}
      {:id        id
-      :uid       id
       :type      t
       :types     types
       :topics    topics
@@ -1418,7 +1410,7 @@
       :out       (parse-bindings out)
       :tailers   (parse-bindings tailers)
       :appenders (parse-bindings appenders)
-      :parsed    parsed
+      :config    config
       :opts      opts})))
 
 (defn- coerce-many-cardinality
@@ -1488,16 +1480,12 @@
          #(not (contains? % :in))
          #(not (contains? % :out))))
 
-(s/def ::processor-impl
+(s/def ::processor
   (s/or ::imperative ::imperative
         ::join-fork  ::join-fork
         ::join       ::join
         ::source     ::source
         ::sink       ::sink))
-
-(s/def ::processor
-  (s/and ::processor-impl
-         (s/conformer parse-processor)))
 
 (s/def ::processors
   (s/coll-of ::processor :kind sequential?))
@@ -1505,15 +1493,11 @@
 (s/def ::graph
   (s/keys :req-un [::processors ::id]))
 
-(defn- parse-graph
-  [g]
-  (-> (cutil/parse ::graph g)
-      (assoc :config g)))
-
 (defn graph
   [g]
-  (-> g
-      (parse-graph)
+  (-> (cutil/parse ::graph g)
+      (update :processors (partial map parse-processor))
+      (assoc :config g)
       (build-graph)))
 
 (defn topology
