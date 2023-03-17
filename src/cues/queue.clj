@@ -973,7 +973,7 @@
   (fn [{{a :appenders
          t :tailers} :imperative
         :as          process} msgs]
-    (cond-> process
+    (cond-> (dissoc process :tailers :appenders)
       t    (assoc :tailers (rename-keys in-map t))
       a    (assoc :appenders (rename-keys out-map a))
       true (handler msgs))))
@@ -1160,7 +1160,9 @@
 
 (defn- zip
   [xs]
-  (zipmap (map (comp :id :queue) xs) xs))
+  (-> (map (comp :id :queue) xs)
+      (zipmap xs)
+      (not-empty)))
 
 (defn- imp-primitives
   [{uid :uid
