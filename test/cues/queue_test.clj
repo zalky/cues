@@ -421,21 +421,19 @@
                    (update ::qt/error qt/simplify-exceptions))
                {::qt/error [{:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
-                             :err.proc/config   {:id         ::pipe-error
-                                                 :in         {:in ::s1}
-                                                 :out        {:out ::q1}
-                                                 :queue-opts {:queue-meta #{:q/t}}
-                                                 :strategy   ::q/exactly-once}
+                             :err.proc/config   {:id       ::pipe-error
+                                                 :in       {:in ::s1}
+                                                 :out      {:out ::q1}
+                                                 :strategy ::q/exactly-once}
                              :err.proc/messages {::s1 {:x      1
                                                        :q/meta {:q/queue {::s1 {:q/t 1}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
                             {:q/type            :q.type.err/processor
                              :err/cause         {:cause "Oops"}
-                             :err.proc/config   {:id         ::pipe-error
-                                                 :in         {:in ::s1}
-                                                 :out        {:out ::q1}
-                                                 :queue-opts {:queue-meta #{:q/t}}
-                                                 :strategy   ::q/exactly-once}
+                             :err.proc/config   {:id       ::pipe-error
+                                                 :in       {:in ::s1}
+                                                 :out      {:out ::q1}
+                                                 :strategy ::q/exactly-once}
                              :err.proc/messages {::s1 {:x      3
                                                        :q/meta {:q/queue {::s1 {:q/t 3}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 2}}}}]
@@ -612,7 +610,7 @@
       (finally (deliver done true))))
   {:out msg})
 
-(defn- try-messages
+(defn try-messages
   [g]
   (->> (:processors g)
        (vals)
@@ -778,11 +776,10 @@
         (is (= (-> (q/all-graph-messages g)
                    (update ::qt/error qt/simplify-exceptions))
                {::qt/error [{:q/type            :q.type.err/processor
-                             :err.proc/config   {:id         ::handled-error
-                                                 :in         {:in ::s1}
-                                                 :out        {:out ::q1}
-                                                 :queue-opts {:queue-meta false}
-                                                 :strategy   ::q/exactly-once}
+                             :err.proc/config   {:id       ::handled-error
+                                                 :in       {:in ::s1}
+                                                 :out      {:out ::q1}
+                                                 :strategy ::q/exactly-once}
                              :err.proc/messages #:cues.queue-test{:s1 {:x 1}}
                              :err/cause         {:cause "Oops"}}]
                 ::s1       [{:x 1} {:x 2}]
@@ -1070,21 +1067,21 @@
           (q/stop-graph! g)
           (q/close-and-delete-graph! g true))))))
 
-(def ^:private full-attempt-impl
+(def ^:private attempt-full-impl
   "Bind original here for use in test fn."
-  @#'q/full-attempt)
+  @#'q/attempt-full)
 
-(defn- full-attempt-then-interrupt
+(defn- attempt-full-then-interrupt
   "Throws an unhandled interrupt immediately after both the attempt and
   output write are completed."
   [done]
   (fn [appender msg]
-    (full-attempt-impl appender msg)
+    (attempt-full-impl appender msg)
     (try
       (throw (q/throw-interrupt!))
       (finally (deliver done true)))))
 
-(t/deftest exactly-once-full-attempt-then-interrupt-test
+(t/deftest exactly-once-attempt-full-then-interrupt-test
   ;; The processor throws an unhandled interrupt after both the
   ;; attempt and the output message are persisted. The processor then
   ;; quits due to the unhandled interrupt. Without exactly once
@@ -1098,7 +1095,7 @@
           d-tid :cues.queue-test.graph.cues.queue-test.done.cues.queue-test/q1]
       (let [done-1 (promise)
             done-2 (promise)]
-        (with-redefs [q/full-attempt (full-attempt-then-interrupt done-1)]
+        (with-redefs [q/attempt-full (attempt-full-then-interrupt done-1)]
           (let [g (->> {:id         ::graph
                         :processors [{:id ::s1}
                                      {:id   ::map-reduce

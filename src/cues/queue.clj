@@ -31,22 +31,17 @@
 (def queue-path-default
   "data/queues/")
 
-(defn- absolute-path?
-  [x]
-  (and (string? x)
-       (str/starts-with? x "/")))
-
 (defn queue?
   [x]
-  (isa? (:type x) ::queue))
+  (= (:type x) ::queue))
 
 (defn tailer?
   [x]
-  (isa? (:type x) ::tailer))
+  (= (:type x) ::tailer))
 
 (defn appender?
   [x]
-  (isa? (:type x) ::appender))
+  (= (:type x) ::appender))
 
 (defn- queue-any?
   [x]
@@ -60,6 +55,11 @@
   (if (qualified-keyword? id)
     (str (namespace id) "/" (name id))
     (name id)))
+
+(defn- absolute-path?
+  [x]
+  (and (string? x)
+       (.isAbsolute (io/file x))))
 
 (defn- queue-path
   [{id              :id
@@ -92,7 +92,8 @@
 
 (defn- combined-id
   [id1 id2]
-  {:pre [(or id1 id2)]}
+  {:pre [(keyword? id1)
+         (keyword? id2)]}
   (let [ns1 (namespace id1)
         ns2 (namespace id2)
         n1  (name id1)
@@ -102,7 +103,7 @@
                   (interpose ".")
                   (apply str)
                   (not-empty))
-             (or n2 n1))))
+             n2)))
 
 (declare last-index)
 
@@ -220,8 +221,8 @@
   behaviour."
   [{t   :tailer-impl
     d   :dirty
-    :as tailer} dir]
-  (tail/set-direction! t dir)
+    :as tailer} direction]
+  (tail/set-direction! t direction)
   (reset! d true)
   tailer)
 
@@ -601,16 +602,17 @@
    :q/hash              attempt-hash
    :q.try/message-index msg-index})
 
-(defn- nil-attempt-map
+(defn- attempt-nil-map
   [attempt-hash]
   {:q/type :q.type.try/attempt-nil
    :q/hash attempt-hash})
 
 (defn- error-config
-  [{:keys [config] :as process}]
-  (let [c1 (select-keys process [:id :queue-opts :strategy :topics :types])
-        c2 (select-keys config [:in :out :tailers :appenders])]
-    (merge c1 c2)))
+  [{:keys [config strategy] :as process}]
+  (-> config
+      (select-keys [:id :topics :types :in :out
+                    :tailers :appenders])
+      (assoc :strategy strategy)))
 
 (defn- processor-error
   [process msgs]
@@ -689,7 +691,7 @@
         (throw x))
       x)))
 
-(defn- full-attempt
+(defn- attempt-full
   [{a     :appender
     :as   process} msg]
   (let [f (-> process
@@ -698,28 +700,21 @@
               (wrap-write))]
     (f a msg)))
 
-(defn- nil-attempt
+(defn- attempt-nil
   [{try-a :try-appender
     h     :snapshot-hash}]
   {:pre [(appender? try-a)]}
   (->> h
-       (nil-attempt-map)
+       (attempt-nil-map)
        (write try-a)))
 
 (defmethod persistent-attempt ::exactly-once
   [process msg]
   (err/on-error (processor-error process msg)
     (if (and (:appender process) msg)
-      (full-attempt process msg)
-      (nil-attempt process))
+      (attempt-full process msg)
+      (attempt-nil process))
     true))
-
-(defn- throw-recover-error!
-  [process-id tailer-id]
-  (-> "No tailer recovery index"
-      (ex-info {:tailer    tailer-id
-                :processor process-id})
-      (throw)))
 
 (defn- recover-snapshot
   [{process-id :id
@@ -730,7 +725,7 @@
                    (:q.try/tailer-indices)
                    (get tid))]
       (to-index t i)
-      (log/warn "Topology changed, cannot recover tailer" tid))))
+      (log/info "Topology changed, no snapshot for tailer" tid))))
 
 (defn- next-snapshot
   [try-tailer]
@@ -789,24 +784,24 @@
       (log/error e "Could not recover tailers")
       false)))
 
-(defn- snapshot-mem
+(defn- snapshot-unblock
   "Record tailer indices for unblock recovery."
   [{tailers :tailers
     :as     process}]
   (->> tailers
        (map (juxt identity index))
        (doall)
-       (assoc process :snapshot-mem)))
+       (assoc process :snapshot-unblock)))
 
 (defn throw-interrupt!
   []
-  (throw (InterruptedException. "Interrupting processor")))
+  (throw (InterruptedException. "Interrupted processor")))
 
-(defn- recover-mem
+(defn- recover-unblock
   "Reset tailer positions and interrupts the processor."
   ([process]
-   (recover-mem process (constantly true)))
-  ([{snapshot :snapshot-mem} pred?]
+   (recover-unblock process (constantly true)))
+  ([{snapshot :snapshot-unblock} pred?]
    (doseq [[tailer i] snapshot]
      (when (pred? tailer)
        (to-index tailer i)))
@@ -882,13 +877,13 @@
       (when appender
         (->> (merge-meta in out process)
              (result-fn process))))
-    (recover-mem process)))
+    (recover-unblock process)))
 
 (defn- processor-snapshot
   [process]
   (try
     (-> process
-        (snapshot-mem)
+        (snapshot-unblock)
         (persistent-snapshot))
     (catch InterruptedException e false)
     (catch Throwable e
@@ -908,34 +903,8 @@
         (error-fn p e)
         true))))
 
-(def ^:private processor-keys
-  "The keys that are passed along to processor fn."
-  [:id
-   :type
-   :system
-   :queue-opts
-   :types
-   :topics
-   :config
-   :error-queue
-   :strategy
-   :snapshot-hash
-   :opts])
-
-(defn- wrap-select-processor
-  [handler]
-  (fn [{:keys [imperative config]
-        :as   process} msgs]
-    (-> process
-        (select-keys processor-keys)
-        (merge imperative)
-        (assoc :in (:in config)
-               :out (:out config))
-        (handler msgs))))
-
 (defn log-processor-error
-  [{{id    :id
-     :keys [in out]
+  [{{:keys [id in out]
      :or   {in  "source"
             out "sink"}} :config} e]
   (log/error e (format "%s (%s -> %s)" id in out)))
@@ -976,16 +945,6 @@
              (filter-fn)
              (handler process))))
 
-(defn- wrap-imperative
-  [handler in-map out-map]
-  (fn [{a   :appenders
-        t   :tailers
-        :as process} msgs]
-    (cond-> process
-      t    (assoc :tailers (rename-keys in-map t))
-      a    (assoc :appenders (rename-keys out-map a))
-      true (handler msgs))))
-
 (defn- wrap-guard-no-out
   [handler]
   (fn [process msgs]
@@ -994,6 +953,31 @@
                 (:config)
                 (:out))
         r))))
+
+(defn- wrap-imperative
+  [handler in-map out-map]
+  (fn [{{a :appenders
+         t :tailers} :imperative
+        :as          process} msgs]
+    (cond-> process
+      t    (assoc :tailers (rename-keys in-map t))
+      a    (assoc :appenders (rename-keys out-map a))
+      true (handler msgs))))
+
+(defn- wrap-select-processor
+  [handler]
+  (fn [process msgs]
+    (-> process
+        (select-keys [:id
+                      :config
+                      :tailers
+                      :appenders
+                      :error-queue
+                      :strategy
+                      :snapshot-hash
+                      :system
+                      :opts])
+        (handler msgs))))
 
 (defn- topics-filter
   [values msgs]
@@ -1031,7 +1015,7 @@
           (throw))))
 
 (defn- get-processor-fn
-  [{{:keys [id in out tailers appenders]
+  [{{:keys [in out tailers appenders]
      :as   config} :config}]
   (let [rev       (set/map-invert in)
         t         (set/map-invert tailers)
@@ -1039,12 +1023,12 @@
         filter-fn (msg-filter-fn config)]
     (-> config
         (get-handler)
-        (wrap-guard-no-out)
+        (wrap-select-processor)
         (wrap-imperative t a)
+        (wrap-guard-no-out)
         (wrap-msg-filter filter-fn)
         (wrap-msg-keys rev out)
-        (wrap-catch-error)
-        (wrap-select-processor))))
+        (wrap-catch-error))))
 
 (defn- processor-handlers
   [process]
@@ -1073,14 +1057,14 @@
       (close-tailers! process))))
 
 (defn- join-tailers
-  [{:keys [uid in]} unblock]
+  [{:keys [uid queue/in]} unblock]
   (some->> in
            (util/seqify)
            (map #(tailer % uid unblock))
            (doall)))
 
 (defn- fork-appenders
-  [{:keys [out]}]
+  [{:keys [queue/out]}]
   (some->> out
            (util/seqify)
            (map appender)
@@ -1104,7 +1088,8 @@
   "Reads messages from a seq of input tailers, applies a processor fn,
   and writes the result to a single output appender. While queues can
   be shared across threads, appenders and tailers cannot."
-  [{:keys [out] :as process} unblock try-queue]
+  [{:keys [queue/out]
+    :as   process} unblock try-queue]
   [(future
      (processor-loop
       (assoc process
@@ -1117,30 +1102,31 @@
   "Conditionally passes message from one input queue, usually a backing
   queue, onto to the fork output queue, iff a message for the output
   queue exists in the map."
-  [{{oid :id} :out
+  [{{oid :id} :queue/out
     [tailer]  :tailers
     :as       process}]
   (if-let [msg (read!! tailer)]
     (get msg oid)
-    (recover-mem process)))
+    (recover-unblock process)))
 
 (defn- start-jf-join
   [process unblock fork-queue]
   (-> process
-      (assoc :out       fork-queue
+      (assoc :queue/out fork-queue
              :result-fn (fn [_ r] r))
       (start-impl unblock start-join)))
 
 (defn- start-jf-fork
-  [{:keys [id uid out] :as process} unblock fork-queue]
+  [{:keys [id uid queue/out]
+    :as   process} unblock fork-queue]
   (doall
    (for [{oid :id :as o} out]
      (-> process
-         (assoc :id     (combined-id id oid)
-                :run-fn fork-run-fn!!
-                :in     fork-queue
-                :out    o
-                :uid    (combined-id uid oid))
+         (assoc :id        (combined-id id oid)
+                :uid       (combined-id uid oid)
+                :run-fn    fork-run-fn!!
+                :queue/in  fork-queue
+                :queue/out o)
          (start-impl unblock start-join)))))
 
 (defn- fork-id
@@ -1162,19 +1148,20 @@
   [xs]
   (zipmap (map (comp :id :queue) xs) xs))
 
-(defn- imp-tailers
-  [{uid            :uid
-    {t :tailers
-     a :appenders} :imperative
-    :as            process} unblock]
-  (let [p {:in  t
-           :out a
-           :uid (suffix-id uid "-i")}]
+(defn- imp-primitives
+  [{uid :uid
+    t   :queue/tailers
+    a   :queue/appenders
+    :as process} unblock]
+  (let [p {:uid       (suffix-id uid "-i")
+           :queue/in  t
+           :queue/out a}]
     {:tailers   (zip (join-tailers p unblock))
      :appenders (zip (fork-appenders p))}))
 
 (defn- start-imperative
-  [{:keys [out] :as process} unblock try-queue]
+  [{:keys [queue/out]
+    :as   process} unblock try-queue]
   [(future
      (processor-loop
       (assoc process
@@ -1182,7 +1169,7 @@
              :tailers      (join-tailers process unblock)
              :appender     (when out (appender out))
              :try-appender (appender try-queue)
-             :imperative   (imp-tailers process unblock))))])
+             :imperative   (imp-primitives process unblock))))])
 
 (defn- start-sink
   [process unblock try-queue]
@@ -1193,7 +1180,6 @@
              :tailers      (join-tailers process unblock)
              :try-appender (appender try-queue))))])
 
-(derive ::source     ::appender)
 (derive ::source     ::processor)
 (derive ::sink       ::processor)
 (derive ::join       ::processor)
@@ -1208,8 +1194,9 @@
   :type)
 
 (defmethod start-processor-impl ::source
-  [{:keys [out] :as process}]
-  (merge (appender out) process))
+  [{:keys [queue/out] :as process}]
+  (->> (appender out)
+       (assoc process :appender)))
 
 (defmethod start-processor-impl ::sink
   [{:keys [id] :as process}]
@@ -1287,18 +1274,18 @@
 (defn- build-processor
   [{error :error-queue
     :as   g} {id  :id
-              in  :in
-              out :out
-              t   :tailers
-              a   :appenders
+              in  :bind/in
+              out :bind/out
+              t   :bind/tailers
+              a   :bind/appenders
               :as process}]
   (cond-> (build-config g process)
     id    (assoc :uid (combined-id (:id g) id))
-    in    (assoc :in (get-q g in))
-    out   (assoc :out (get-q g out))
+    in    (assoc :queue/in (get-q g in))
+    out   (assoc :queue/out (get-q g out))
     error (assoc :error-queue (get-q g error))
-    t     (assoc-in [:imperative :tailers] (get-q g t))
-    a     (assoc-in [:imperative :appenders] (get-q g a))))
+    t     (assoc :queue/tailers (get-q g t))
+    a     (assoc :queue/appenders (get-q g a))))
 
 (defn- build-processors
   [g processors]
@@ -1308,7 +1295,7 @@
        (update g :processors cutil/into-once)))
 
 (defn- collect-processor-queues
-  [{:keys [in out appenders tailers]}]
+  [{:bind/keys [in out appenders tailers]}]
   (concat (util/seqify in)
           (util/seqify out)
           (util/seqify appenders)
@@ -1347,21 +1334,17 @@
        (into {})
        (deps/graph)))
 
-(defn- imperative-edges
-  [id {a-q :appenders
-       t-q :tailers}]
-  (cond-> {}
-    t-q (assoc (queue-ids t-q) id)
-    a-q (assoc id (queue-ids a-q))))
-
 (defn- processor-edges
   [{id  :id
-    in  :in
-    out :out
-    i   :imperative}]
-  (cond-> (imperative-edges id i)
+    in  :queue/in
+    out :queue/out
+    a   :queue/appenders
+    t   :queue/tailers}]
+  (cond-> {}
     in  (assoc (queue-ids in) id)
-    out (assoc id (queue-ids out))))
+    out (assoc id (queue-ids out))
+    t   (assoc (queue-ids t) id)
+    a   (assoc id (queue-ids a))))
 
 (defn- build-topology*
   [processors]
@@ -1394,24 +1377,22 @@
       b)))
 
 (defn- parse-processor
-  [[t {:keys [id types topics in out tailers appenders opts]
+  [[t {:keys [id in out tailers appenders opts]
        :as   config}]]
   (cutil/some-entries
    (case t
-     ::source {:id   id
-               :out  id
-               :type t
-               :opts opts}
-     {:id        id
-      :type      t
-      :types     types
-      :topics    topics
-      :in        (parse-bindings in)
-      :out       (parse-bindings out)
-      :tailers   (parse-bindings tailers)
-      :appenders (parse-bindings appenders)
-      :config    config
-      :opts      opts})))
+     ::source {:id       id
+               :type     t
+               :bind/out id
+               :opts     opts}
+     {:id             id
+      :type           t
+      :bind/in        (parse-bindings in)
+      :bind/out       (parse-bindings out)
+      :bind/tailers   (parse-bindings tailers)
+      :bind/appenders (parse-bindings appenders)
+      :config         config
+      :opts           opts})))
 
 (defn- coerce-many-cardinality
   [[t form]]
@@ -1530,6 +1511,7 @@
 
 (defn close-graph!
   [graph]
+  (stop-graph! graph)
   (->> graph
        (collect-graph-queues)
        (map close-queue!)
@@ -1542,8 +1524,8 @@
   ([{p           :processors
      {s :source} :config
      :as         g} source msg]
-   (if-let [a (get p (or source s))]
-     (write a msg)
+   (if-let [s (get p (or source s))]
+     (write (:appender s) msg)
      (throw (ex-info "Could not find source" {:id source})))))
 
 (defn messages
