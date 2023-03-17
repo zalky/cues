@@ -813,6 +813,14 @@
        (to-index tailer i)))
    (throw-interrupt!)))
 
+(defn- merge-deep
+  [& args]
+  (letfn [(f [& args]
+            (if (every? map? args)
+              (apply merge-with f args)
+              (last args)))]
+    (apply f (remove nil? args))))
+
 (defn- merge-meta?
   [process]
   (get-in process [:queue-opts :queue-meta] true))
@@ -821,14 +829,14 @@
   [in]
   (->> (vals in)
        (keep :q/meta)
-       (apply util/merge-deep)))
+       (apply merge-deep)))
 
 (defn- assoc-meta-out
   [out m]
   (reduce-kv
    (fn [out k v]
      (cond-> out
-       v (assoc k (assoc v :q/meta m))))
+       v (assoc k (update v :q/meta merge-deep m))))
    {}
    out))
 
