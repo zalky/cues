@@ -637,7 +637,7 @@
                (into {})
                (snapshot-map uid))]
     (write try-a m)
-    (assoc process :snapshot-hash (hash m))))
+    (assoc process :delivery-hash (hash m))))
 
 (def ^:dynamic add-attempt-hash
   "Only rebind in testing."
@@ -668,7 +668,7 @@
 (defn- wrap-attempt
   [{a     :appender
     try-a :try-appender
-    h     :snapshot-hash
+    h     :delivery-hash
     :as   process}]
   (fn [_ msg]
     (let [write-a (appender-obj a)
@@ -708,7 +708,7 @@
 
 (defn- attempt-nil
   [{try-a :try-appender
-    h     :snapshot-hash}]
+    h     :delivery-hash}]
   {:pre [(appender? try-a)]}
   (->> h
        (attempt-nil-map)
@@ -988,7 +988,7 @@
                       :appenders
                       :error-queue
                       :strategy
-                      :snapshot-hash
+                      :delivery-hash
                       :system
                       :opts])
         (handler msgs))))
