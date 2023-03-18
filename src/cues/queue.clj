@@ -569,7 +569,7 @@
   delivery semantics in Cues processors."
   :strategy)
 
-(defmulti persistent-alts
+(defmulti persistent-snapshot-alts
   "Persists the alts processor tailer id to a backing queue. Called
   immediately after the processor alts read. Taken together,
   persistent-snapshot, persistent-attempt, and persistent-recover
@@ -595,38 +595,38 @@
 
 (defn- snapshot?
   [msg]
-  (= (:q/type msg) :q.type.try/snapshot))
+  (= (:q/type msg) :q.type/snapshot))
 
 (defn- snapshot-alts?
   [msg]
-  (= (:q/type msg) :q.type.try/alts))
+  (= (:q/type msg) :q.type/alts))
 
 (defn- snapshot-map
   [id tailer-indices]
-  {:q/type               :q.type.try/snapshot
-   :q.try/proc-id        id
-   :q.try/tailer-indices tailer-indices})
+  {:q/type           :q.type/snapshot
+   :q/proc-id        id
+   :q/tailer-indices tailer-indices})
 
-(defn- alts-map
+(defn- snapshot-alts-map
   [tailer-id]
-  {:q/type        :q.type.try/alts
-   :q.try/alts-id tailer-id})
+  {:q/type    :q.type/snapshot-alts
+   :q/tailer-id tailer-id})
 
 (defn- attempt-type
   [process]
   (if (= (:id (:error-queue process))
          (:id (:queue (:appender process))))
-    :q.type.try/attempt-error
-    :q.type.try/attempt))
+    :q.type/attempt-error
+    :q.type/attempt-output))
 
 (defn- attempt-map
   [process msg-index]
-  {:q/type              (attempt-type process)
-   :q.try/message-index msg-index})
+  {:q/type          (attempt-type process)
+   :q/message-index msg-index})
 
 (defn- attempt-nil-map
   [attempt-hash]
-  {:q/type :q.type.try/attempt-nil
+  {:q/type :q.type/attempt-nil
    :q/hash attempt-hash})
 
 (defn- error-config
@@ -636,7 +636,7 @@
                     :tailers :appenders])
       (assoc :strategy strategy)))
 
-(defn- processor-error
+(defn- error-message
   [process msgs]
   {:q/type            :q.type.err/processor
    :err.proc/config   (error-config process)
@@ -656,13 +656,13 @@
     (when-not retry (write try-a m))
     (assoc process :delivery-hash (hash m))))
 
-(defmethod persistent-alts ::exactly-once
+(defmethod persistent-snapshot-alts ::exactly-once
   [{try-a :try-appender
     retry :retry} tailer]
   {:pre [(appender? try-a)]}
   (when-not retry
     (->> (:id tailer)
-         (alts-map)
+         (snapshot-alts-map)
          (write try-a))))
 
 (def ^:dynamic add-attempt-hash
@@ -742,7 +742,7 @@
 
 (defmethod persistent-attempt ::exactly-once
   [process msg]
-  (err/on-error (processor-error process msg)
+  (err/on-error (error-message process msg)
     (if (and (:appender process) msg)
       (attempt-full process msg)
       (attempt-nil process))
@@ -754,7 +754,7 @@
   {:pre [(snapshot? snapshot)]}
   (doseq [{tid :id :as t} tailers]
     (if-let [i (-> snapshot
-                   (:q.try/tailer-indices)
+                   (:q/tailer-indices)
                    (get tid))]
       (to-index t i)
       (log/info "Topology changed, no snapshot for tailer" tid))))
@@ -764,11 +764,11 @@
   idemopotent. We do not need to track if they have been reset we
   simply do it every time we detect the most recent delivery attempt
   has failed."
-  [process {id :q.try/alts-id} snapshot]
+  [process {id :q/tailer-id} snapshot]
   (recover-tailers process snapshot)
   (assoc process
-         :retry   true
-         :alts-id id))
+         :retry true
+         :retry-alts-tailer-id id))
 
 (defn- next-snapshot
   "Reads back to the next snapshot on the try queue. Also return the
@@ -783,9 +783,9 @@
           (recur msg snapshot)
           (recur alts snapshot))))))
 
-(defn- recover-attempt
+(defn- recover-attempt-output
   [try-tailer {{q :queue} :appender
-               :as        process} {i :q.try/message-index}]
+               :as        process} {i :q/message-index}]
   (with-tailer [t q]
     (let [[alts snapshot] (next-snapshot try-tailer)]
       (when (not= (hash snapshot)
@@ -801,7 +801,7 @@
   (let [p (->> (:error-queue process)
                (appender)
                (assoc process :appender))]
-    (recover-attempt try-tailer p msg)))
+    (recover-attempt-output try-tailer p msg)))
 
 (defn- recover-attempt-nil
   [try-tailer process {h :q/hash}]
@@ -809,7 +809,7 @@
     (when (not= h (hash snapshot))
       (recover-snapshot process alts snapshot))))
 
-(defn- recover-attempt-alts
+(defn- recover-snapshot-alts
   [try-tailer process alts]
   (let [[_ snapshot] (next-snapshot try-tailer)]
     (recover-snapshot process alts snapshot)))
@@ -817,11 +817,11 @@
 (defn- recover
   [try-tailer process msg]
   (case (:q/type msg)
-    :q.type.try/snapshot      (recover-snapshot process nil msg)
-    :q.type.try/alts          (recover-attempt-alts try-tailer process msg)
-    :q.type.try/attempt       (recover-attempt try-tailer process msg)
-    :q.type.try/attempt-error (recover-attempt-error try-tailer process msg)
-    :q.type.try/attempt-nil   (recover-attempt-nil try-tailer process msg)))
+    :q.type/snapshot       (recover-snapshot process nil msg)
+    :q.type/snapshot-alts  (recover-snapshot-alts try-tailer process msg)
+    :q.type/attempt-error  (recover-attempt-error try-tailer process msg)
+    :q.type/attempt-output (recover-attempt-output try-tailer process msg)
+    :q.type/attempt-nil    (recover-attempt-nil try-tailer process msg)))
 
 (defmethod persistent-recover ::exactly-once
   [{{q :queue} :try-appender
@@ -917,14 +917,18 @@
 (defn- alts-tailers
   "Filters the set of alts tailers to a single tailer when processor
   attempting to retry deliver of messages."
-  [{:keys [tailers retry alts-id]}]
+  [{tailers :tailers
+    retry   :retry
+    id      :retry-alts-tailer-id}]
   (cond->> tailers
-    alts-id (filter (comp #{alts-id} :id))))
+    id (filter (comp #{id} :id))))
 
 (defn- alts-read!!
   [process]
-  (when-let [[t msg] (alts!! (alts-tailers process))]
-    (persistent-alts process t)
+  (when-let [[t msg] (-> process
+                         (alts-tailers)
+                         (alts!!))]
+    (persistent-snapshot-alts process t)
     {(:id (:queue t)) msg}))
 
 (defn- processor-read
@@ -963,7 +967,7 @@
 
 (defn- reset-processor
   [process]
-  (dissoc process :retry :alts-id))
+  (dissoc process :retry :retry-alts-tailer-id))
 
 (defn- processor-step
   [{:keys [run-fn error-fn]
@@ -998,7 +1002,7 @@
 (defn- wrap-catch-error
   [handler]
   (fn [process msgs]
-    (err/on-error (processor-error process msgs)
+    (err/on-error (error-message process msgs)
       (handler process msgs))))
 
 (defn- rename-keys
@@ -1160,7 +1164,7 @@
   [process unblock start-fn]
   (let [q (backing-queue process)]
     {:try-queues [q]
-     :futures    (start-fn process unblock q)}))
+     :futures    [(start-fn process unblock q)]}))
 
 (defn- start-join
   "Reads messages from a seq of input tailers, applies a processor fn,
@@ -1168,13 +1172,13 @@
   be shared across threads, appenders and tailers cannot."
   [{:keys [queue/out]
     :as   process} unblock try-queue]
-  [(future
-     (processor-loop
-      (assoc process
-             :unblock      unblock
-             :tailers      (join-tailers process unblock)
-             :appender     (appender out)
-             :try-appender (appender try-queue))))])
+  (future
+    (processor-loop
+     (assoc process
+            :unblock      unblock
+            :tailers      (join-tailers process unblock)
+            :appender     (appender out)
+            :try-appender (appender try-queue)))))
 
 (defn- fork-run-fn!!
   "Conditionally passes message from one input queue, usually a backing
@@ -1242,23 +1246,23 @@
 (defn- start-imperative
   [{:keys [queue/out]
     :as   process} unblock try-queue]
-  [(future
-     (processor-loop
-      (assoc process
-             :unblock      unblock
-             :tailers      (join-tailers process unblock)
-             :appender     (when out (appender out))
-             :try-appender (appender try-queue)
-             :imperative   (imp-primitives process unblock))))])
+  (future
+    (processor-loop
+     (assoc process
+            :unblock      unblock
+            :tailers      (join-tailers process unblock)
+            :appender     (when out (appender out))
+            :try-appender (appender try-queue)
+            :imperative   (imp-primitives process unblock)))))
 
 (defn- start-sink
   [process unblock try-queue]
-  [(future
-     (processor-loop
-      (assoc process
-             :unblock      unblock
-             :tailers      (join-tailers process unblock)
-             :try-appender (appender try-queue))))])
+  (future
+    (processor-loop
+     (assoc process
+            :unblock      unblock
+            :tailers      (join-tailers process unblock)
+            :try-appender (appender try-queue)))))
 
 (derive ::source     ::processor)
 (derive ::sink       ::processor)

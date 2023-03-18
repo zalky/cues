@@ -652,9 +652,9 @@
       (is (= (q/all-graph-messages g)
              {::s1 [{:x 1} {:x 2}]
               ::q1 []
-              p-id [{:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid 1}}]}))
+              p-id [{:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid 1}}]}))
       (q/stop-graph! g))
 
     ;; After restarting the graph both messages are delivered, and we
@@ -691,32 +691,32 @@
       (is (= (q/all-graph-messages g)
              {::s1 [{:x 1} {:x 2}]
               ::q1 [{:x 1} {:x 2}]
-              p-id [{:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid 1}}
-                    {:q/type              :q.type.try/attempt
-                     :q.try/message-index 1}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid 2}}
-                    {:q/type              :q.type.try/attempt
-                     :q.try/message-index 2}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid 3}}]
-              d-id [{:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        d-id
-                     :q.try/tailer-indices {d-tid 1}}
-                    {:q/type :q.type.try/attempt-nil
-                     :q/hash -304838733}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        d-id
-                     :q.try/tailer-indices {d-tid 2}}
-                    {:q/type :q.type.try/attempt-nil
-                     :q/hash 1890056431}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        d-id
-                     :q.try/tailer-indices {d-tid 3}}]}))
+              p-id [{:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid 1}}
+                    {:q/type          :q.type/attempt-output
+                     :q/message-index 1}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid 2}}
+                    {:q/type          :q.type/attempt-output
+                     :q/message-index 2}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid 3}}]
+              d-id [{:q/type           :q.type/snapshot
+                     :q/proc-id        d-id
+                     :q/tailer-indices {d-tid 1}}
+                    {:q/type :q.type/attempt-nil
+                     :q/hash -1173148930}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        d-id
+                     :q/tailer-indices {d-tid 2}}
+                    {:q/type :q.type/attempt-nil
+                     :q/hash 1121832113}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        d-id
+                     :q/tailer-indices {d-tid 3}}]}))
       (q/stop-graph! g)
       (q/close-and-delete-graph! g true))))
 
@@ -767,11 +767,11 @@
              {::s1 [{:x 2}]
               ::s2 [{:x 1}]
               ::q1 []
-              p-id [{:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid1 1 p-tid2 1}}
-                    {:q/type        :q.type.try/alts
-                     :q.try/alts-id p-tid2}]}))
+              p-id [{:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid1 1 p-tid2 1}}
+                    {:q/type      :q.type/snapshot-alts
+                     :q/tailer-id p-tid2}]}))
       (q/stop-graph! g))
 
     ;; After restarting the graph both messages are delivered, and we
@@ -813,36 +813,36 @@
               ::s2 [{:x 1}]
               ::q1 [{:x 1}
                     {:x 2}]
-              p-id [{:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid1 1 p-tid2 1}}
-                    {:q/type        :q.type.try/alts
-                     :q.try/alts-id p-tid2}
-                    {:q/type              :q.type.try/attempt
-                     :q.try/message-index 1}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid1 1 p-tid2 2}}
-                    {:q/type        :q.type.try/alts
-                     :q.try/alts-id p-tid1}
-                    {:q/type              :q.type.try/attempt
-                     :q.try/message-index 2}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        p-id
-                     :q.try/tailer-indices {p-tid1 2 p-tid2 2}}]
-              d-id [{:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        d-id
-                     :q.try/tailer-indices {d-tid 1}}
-                    {:q/type :q.type.try/attempt-nil
-                     :q/hash -304838733}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        d-id
-                     :q.try/tailer-indices {d-tid 2}}
-                    {:q/type :q.type.try/attempt-nil
-                     :q/hash 1890056431}
-                    {:q/type               :q.type.try/snapshot
-                     :q.try/proc-id        d-id
-                     :q.try/tailer-indices {d-tid 3}}]}))
+              p-id [{:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid1 1 p-tid2 1}}
+                    {:q/type      :q.type/snapshot-alts
+                     :q/tailer-id p-tid2}
+                    {:q/type          :q.type/attempt-output
+                     :q/message-index 1}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid1 1 p-tid2 2}}
+                    {:q/type      :q.type/snapshot-alts
+                     :q/tailer-id p-tid1}
+                    {:q/type          :q.type/attempt-output
+                     :q/message-index 2}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        p-id
+                     :q/tailer-indices {p-tid1 2 p-tid2 2}}]
+              d-id [{:q/type           :q.type/snapshot
+                     :q/proc-id        d-id
+                     :q/tailer-indices {d-tid 1}}
+                    {:q/type :q.type/attempt-nil
+                     :q/hash -1173148930}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        d-id
+                     :q/tailer-indices {d-tid 2}}
+                    {:q/type :q.type/attempt-nil
+                     :q/hash 1121832113}
+                    {:q/type           :q.type/snapshot
+                     :q/proc-id        d-id
+                     :q/tailer-indices {d-tid 3}}]}))
       (q/stop-graph! g)
       (q/close-and-delete-graph! g true))))
 
@@ -910,15 +910,15 @@
               ::s2   [{:x 2}]
               ::q1   []
               ::q2   []
-              p-id   [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-id
-                       :q.try/tailer-indices {p-tid1 1 p-tid2 1}}]
-              p-jid1 [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-jid1
-                       :q.try/tailer-indices {p-fid1 1}}]
-              p-jid2 [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-jid2
-                       :q.try/tailer-indices {p-fid2 1}}]}))
+              p-id   [{:q/type           :q.type/snapshot
+                       :q/proc-id        p-id
+                       :q/tailer-indices {p-tid1 1 p-tid2 1}}]
+              p-jid1 [{:q/type           :q.type/snapshot
+                       :q/proc-id        p-jid1
+                       :q/tailer-indices {p-fid1 1}}]
+              p-jid2 [{:q/type           :q.type/snapshot
+                       :q/proc-id        p-jid2
+                       :q/tailer-indices {p-fid2 1}}]}))
       (q/stop-graph! g))
 
     ;; After restarting the graph both messages are delivered, and we
@@ -968,30 +968,30 @@
               ::s2   [{:x 2}]
               ::q1   [{:x 1}]
               ::q2   [{:x 2}]
-              p-id   [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-id
-                       :q.try/tailer-indices {p-tid1 1 p-tid2 1}}
-                      {:q/type              :q.type.try/attempt
-                       :q.try/message-index 1}
-                      {:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-id
-                       :q.try/tailer-indices {p-tid1 2 p-tid2 2}}]
-              p-jid1 [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-jid1
-                       :q.try/tailer-indices {p-fid1 1}}
-                      {:q/type              :q.type.try/attempt
-                       :q.try/message-index 1}
-                      {:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-jid1
-                       :q.try/tailer-indices {p-fid1 2}}]
-              p-jid2 [{:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-jid2
-                       :q.try/tailer-indices {p-fid2 1}}
-                      {:q/type              :q.type.try/attempt
-                       :q.try/message-index 1}
-                      {:q/type               :q.type.try/snapshot
-                       :q.try/proc-id        p-jid2
-                       :q.try/tailer-indices {p-fid2 2}}]}))
+              p-id   [{:q/type           :q.type/snapshot
+                       :q/proc-id        p-id
+                       :q/tailer-indices {p-tid1 1 p-tid2 1}}
+                      {:q/type          :q.type/attempt-output
+                       :q/message-index 1}
+                      {:q/type           :q.type/snapshot
+                       :q/proc-id        p-id
+                       :q/tailer-indices {p-tid1 2 p-tid2 2}}]
+              p-jid1 [{:q/type           :q.type/snapshot
+                       :q/proc-id        p-jid1
+                       :q/tailer-indices {p-fid1 1}}
+                      {:q/type          :q.type/attempt-output
+                       :q/message-index 1}
+                      {:q/type           :q.type/snapshot
+                       :q/proc-id        p-jid1
+                       :q/tailer-indices {p-fid1 2}}]
+              p-jid2 [{:q/type           :q.type/snapshot
+                       :q/proc-id        p-jid2
+                       :q/tailer-indices {p-fid2 1}}
+                      {:q/type          :q.type/attempt-output
+                       :q/message-index 1}
+                      {:q/type           :q.type/snapshot
+                       :q/proc-id        p-jid2
+                       :q/tailer-indices {p-fid2 2}}]}))
       (q/stop-graph! g)
       (q/close-and-delete-graph! g true))))
 
@@ -1054,27 +1054,27 @@
                              :err/cause         {:cause "Oops"}}]
                 ::s1       [{:x 1} {:x 2}]
                 ::q1       [{:x 2}]
-                p-id       [{:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        p-id
-                             :q.try/tailer-indices {p-tid 1}}
-                            {:q/type              :q.type.try/attempt-error
-                             :q.try/message-index 1}
-                            {:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        p-id
-                             :q.try/tailer-indices {p-tid 2}}
-                            {:q/type              :q.type.try/attempt
-                             :q.try/message-index 1}
-                            {:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        p-id
-                             :q.try/tailer-indices {p-tid 3}}]
-                d-id       [{:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        d-id
-                             :q.try/tailer-indices {d-tid 1}}
-                            {:q/type :q.type.try/attempt-nil
-                             :q/hash -304838733}
-                            {:q/type               :q.type.try/snapshot
-                             :q.try/proc-id        d-id
-                             :q.try/tailer-indices {d-tid 2}}] }))))))
+                p-id       [{:q/type           :q.type/snapshot
+                             :q/proc-id        p-id
+                             :q/tailer-indices {p-tid 1}}
+                            {:q/type          :q.type/attempt-error
+                             :q/message-index 1}
+                            {:q/type           :q.type/snapshot
+                             :q/proc-id        p-id
+                             :q/tailer-indices {p-tid 2}}
+                            {:q/type          :q.type/attempt-output
+                             :q/message-index 1}
+                            {:q/type           :q.type/snapshot
+                             :q/proc-id        p-id
+                             :q/tailer-indices {p-tid 3}}]
+                d-id       [{:q/type           :q.type/snapshot
+                             :q/proc-id        d-id
+                             :q/tailer-indices {d-tid 1}}
+                            {:q/type :q.type/attempt-nil
+                             :q/hash -1173148930}
+                            {:q/type           :q.type/snapshot
+                             :q/proc-id        d-id
+                             :q/tailer-indices {d-tid 2}}] }))))))
 
 (def ^:private write-impl
   "Bind original here for use in test fn."
@@ -1088,7 +1088,7 @@
     (write-impl appender msg)
     (when (= (swap! counter inc) n)
       (deliver done true))
-    (when (= (:q/type msg) :q.type.try/attempt)
+    (when (= (:q/type msg) :q.type/attempt-output)
       (throw (Exception. "Failed after write")))))
 
 (t/deftest exactly-once-write-handled-error-test
@@ -1127,23 +1127,23 @@
             (is (= (q/all-graph-messages g)
                    {::s1 [{:x 1} {:x 2}]
                     ::q1 []
-                    p-id [{:q/type               :q.type.try/snapshot
-                           :q.try/proc-id        p-id
-                           :q.try/tailer-indices {p-tid 1}}
-                          {:q/type              :q.type.try/attempt
-                           :q.try/message-index 1}
-                          {:q/type :q.type.try/attempt-nil
-                           :q/hash 1564761239}
-                          {:q/type               :q.type.try/snapshot
-                           :q.try/proc-id        p-id
-                           :q.try/tailer-indices {p-tid 2}}
-                          {:q/type              :q.type.try/attempt
-                           :q.try/message-index 1}
-                          {:q/type :q.type.try/attempt-nil
-                           :q/hash 156908796}
-                          {:q/type               :q.type.try/snapshot
-                           :q.try/proc-id        p-id
-                           :q.try/tailer-indices {p-tid 3}}]}))
+                    p-id [{:q/type           :q.type/snapshot
+                           :q/proc-id        p-id
+                           :q/tailer-indices {p-tid 1}}
+                          {:q/type          :q.type/attempt-output
+                           :q/message-index 1}
+                          {:q/type :q.type/attempt-nil
+                           :q/hash -1760427723}
+                          {:q/type           :q.type/snapshot
+                           :q/proc-id        p-id
+                           :q/tailer-indices {p-tid 2}}
+                          {:q/type          :q.type/attempt-output
+                           :q/message-index 1}
+                          {:q/type :q.type/attempt-nil
+                           :q/hash 1041536571}
+                          {:q/type           :q.type/snapshot
+                           :q/proc-id        p-id
+                           :q/tailer-indices {p-tid 3}}]}))
             (q/stop-graph! g)
             (q/close-and-delete-graph! g true)))))))
 
@@ -1182,38 +1182,38 @@
             (is (= (-> (q/all-graph-messages g)
                        (update ::qt/error qt/simplify-exceptions))
                    {::qt/error [{:q/type            :q.type.err/processor
-                                 :err.proc/config   {:id         ::map-reduce
-                                                     :in         {:in ::s1}
-                                                     :out        {:out ::q1}
-                                                     :strategy   ::q/exactly-once}
+                                 :err.proc/config   {:id       ::map-reduce
+                                                     :in       {:in ::s1}
+                                                     :out      {:out ::q1}
+                                                     :strategy ::q/exactly-once}
                                  :err.proc/messages {:x 2}
                                  :err/cause         {:cause "Failed after write"}}
                                 {:q/type            :q.type.err/processor
-                                 :err.proc/config   {:id         ::map-reduce
-                                                     :in         {:in ::s1}
-                                                     :out        {:out ::q1}
-                                                     :strategy   ::q/exactly-once}
+                                 :err.proc/config   {:id       ::map-reduce
+                                                     :in       {:in ::s1}
+                                                     :out      {:out ::q1}
+                                                     :strategy ::q/exactly-once}
                                  :err.proc/messages {:x 3}
                                  :err/cause         {:cause "Failed after write"}}]
                     ::s1       [{:x 1} {:x 2}]
                     ::q1       []
-                    p-id       [{:q/type               :q.type.try/snapshot
-                                 :q.try/proc-id        p-id
-                                 :q.try/tailer-indices {p-tid 1}}
-                                {:q/type              :q.type.try/attempt
-                                 :q.try/message-index 1}
-                                {:q/type              :q.type.try/attempt-error
-                                 :q.try/message-index 1}
-                                {:q/type               :q.type.try/snapshot
-                                 :q.try/proc-id        p-id
-                                 :q.try/tailer-indices {p-tid 2}}
-                                {:q/type              :q.type.try/attempt
-                                 :q.try/message-index 1}
-                                {:q/type              :q.type.try/attempt-error
-                                 :q.try/message-index 2}
-                                {:q/type               :q.type.try/snapshot
-                                 :q.try/proc-id        p-id
-                                 :q.try/tailer-indices {p-tid 3}}]}))
+                    p-id       [{:q/type           :q.type/snapshot
+                                 :q/proc-id        p-id
+                                 :q/tailer-indices {p-tid 1}}
+                                {:q/type          :q.type/attempt-output
+                                 :q/message-index 1}
+                                {:q/type          :q.type/attempt-error
+                                 :q/message-index 1}
+                                {:q/type           :q.type/snapshot
+                                 :q/proc-id        p-id
+                                 :q/tailer-indices {p-tid 2}}
+                                {:q/type          :q.type/attempt-output
+                                 :q/message-index 1}
+                                {:q/type          :q.type/attempt-error
+                                 :q/message-index 2}
+                                {:q/type           :q.type/snapshot
+                                 :q/proc-id        p-id
+                                 :q/tailer-indices {p-tid 3}}]}))
             (q/stop-graph! g)
             (q/close-and-delete-graph! g true)))))))
 
@@ -1223,7 +1223,7 @@
   [done]
   (fn [appender msg]
     (write-impl appender msg)
-    (when (= (:q/type msg) :q.type.try/attempt)
+    (when (= (:q/type msg) :q.type/attempt-output)
       (try
         (throw (q/throw-interrupt!))
         (finally (deliver done true))))))
@@ -1263,11 +1263,11 @@
             (is (= (q/all-graph-messages g)
                    {::s1 [{:x 1}]
                     ::q1 []
-                    p-id [{:q/type               :q.type.try/snapshot
-                           :q.try/proc-id        p-id
-                           :q.try/tailer-indices {p-tid 1}}
-                          {:q/type              :q.type.try/attempt
-                           :q.try/message-index 1}]}))
+                    p-id [{:q/type           :q.type/snapshot
+                           :q/proc-id        p-id
+                           :q/tailer-indices {p-tid 1}}
+                          {:q/type          :q.type/attempt-output
+                           :q/message-index 1}]}))
             (q/stop-graph! g))))
 
       ;; After restarting the graph the message is re-delivered, and
@@ -1302,24 +1302,24 @@
           (is (= (q/all-graph-messages g)
                  {::s1 [{:x 1}]
                   ::q1 [{:x 2}]
-                  p-id [{:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        p-id
-                         :q.try/tailer-indices {p-tid 1}}
-                        {:q/type              :q.type.try/attempt
-                         :q.try/message-index 1}
-                        {:q/type              :q.type.try/attempt
-                         :q.try/message-index 1}
-                        {:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        p-id
-                         :q.try/tailer-indices {p-tid 2}}]
-                  d-id [{:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        d-id
-                         :q.try/tailer-indices {d-tid 1}}
-                        {:q/type :q.type.try/attempt-nil
-                         :q/hash -304838733}
-                        {:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        d-id
-                         :q.try/tailer-indices {d-tid 2}}]}))
+                  p-id [{:q/type           :q.type/snapshot
+                         :q/proc-id        p-id
+                         :q/tailer-indices {p-tid 1}}
+                        {:q/type          :q.type/attempt-output
+                         :q/message-index 1}
+                        {:q/type          :q.type/attempt-output
+                         :q/message-index 1}
+                        {:q/type           :q.type/snapshot
+                         :q/proc-id        p-id
+                         :q/tailer-indices {p-tid 2}}]
+                  d-id [{:q/type           :q.type/snapshot
+                         :q/proc-id        d-id
+                         :q/tailer-indices {d-tid 1}}
+                        {:q/type :q.type/attempt-nil
+                         :q/hash -1173148930}
+                        {:q/type           :q.type/snapshot
+                         :q/proc-id        d-id
+                         :q/tailer-indices {d-tid 2}}]}))
           (q/stop-graph! g)
           (q/close-and-delete-graph! g true))))))
 
@@ -1372,11 +1372,11 @@
             (is (= (q/all-graph-messages g)
                    {::s1 [{:x 1}]
                     ::q1 [{:x 2}]
-                    p-id [{:q/type               :q.type.try/snapshot
-                           :q.try/proc-id        p-id
-                           :q.try/tailer-indices {p-tid 1}}
-                          {:q/type              :q.type.try/attempt
-                           :q.try/message-index 1}]}))
+                    p-id [{:q/type           :q.type/snapshot
+                           :q/proc-id        p-id
+                           :q/tailer-indices {p-tid 1}}
+                          {:q/type          :q.type/attempt-output
+                           :q/message-index 1}]}))
             (q/stop-graph! g))))
 
       ;; After restarting the graph the message is not re-delivered,
@@ -1412,22 +1412,22 @@
           (is (= (q/all-graph-messages g)
                  {::s1 [{:x 1}]
                   ::q1 [{:x 2}]
-                  p-id [{:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        p-id
-                         :q.try/tailer-indices {p-tid 1}}
-                        {:q/type              :q.type.try/attempt
-                         :q.try/message-index 1}
-                        {:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        p-id
-                         :q.try/tailer-indices {p-tid 2}}]
-                  d-id [{:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        d-id
-                         :q.try/tailer-indices {d-tid 1}}
-                        {:q/type :q.type.try/attempt-nil
-                         :q/hash -304838733}
-                        {:q/type               :q.type.try/snapshot
-                         :q.try/proc-id        d-id
-                         :q.try/tailer-indices {d-tid 2}}]}))
+                  p-id [{:q/type           :q.type/snapshot
+                         :q/proc-id        p-id
+                         :q/tailer-indices {p-tid 1}}
+                        {:q/type          :q.type/attempt-output
+                         :q/message-index 1}
+                        {:q/type           :q.type/snapshot
+                         :q/proc-id        p-id
+                         :q/tailer-indices {p-tid 2}}]
+                  d-id [{:q/type           :q.type/snapshot
+                         :q/proc-id        d-id
+                         :q/tailer-indices {d-tid 1}}
+                        {:q/type :q.type/attempt-nil
+                         :q/hash -1173148930}
+                        {:q/type           :q.type/snapshot
+                         :q/proc-id        d-id
+                         :q/tailer-indices {d-tid 2}}]}))
           (q/stop-graph! g)
           (q/close-and-delete-graph! g true))))))
 
