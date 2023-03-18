@@ -698,13 +698,11 @@
                      :q.try/proc-id        p-id
                      :q.try/tailer-indices {p-tid 1}}
                     {:q/type              :q.type.try/attempt
-                     :q/hash              1765848755
                      :q.try/message-index 1}
                     {:q/type               :q.type.try/snapshot
                      :q.try/proc-id        p-id
                      :q.try/tailer-indices {p-tid 2}}
                     {:q/type              :q.type.try/attempt
-                     :q/hash              -351889203
                      :q.try/message-index 2}
                     {:q/type               :q.type.try/snapshot
                      :q.try/proc-id        p-id
@@ -854,7 +852,6 @@
                        :q.try/proc-id        p-id
                        :q.try/tailer-indices {p-tid1 1 p-tid2 1}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              16620243
                        :q.try/message-index 1}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-id
@@ -866,7 +863,6 @@
                        :q.try/proc-id        p-jid1
                        :q.try/tailer-indices {p-fid1 1}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              -247906398
                        :q.try/message-index 1}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-jid1
@@ -878,7 +874,6 @@
                        :q.try/proc-id        p-jid2
                        :q.try/tailer-indices {p-fid2 1}}
                       {:q/type              :q.type.try/attempt
-                       :q/hash              1360014527
                        :q.try/message-index 1}
                       {:q/type               :q.type.try/snapshot
                        :q.try/proc-id        p-jid2
@@ -949,13 +944,11 @@
                              :q.try/proc-id        p-id
                              :q.try/tailer-indices {p-tid 1}}
                             {:q/type              :q.type.try/attempt-error
-                             :q/hash              -47654028
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        p-id
                              :q.try/tailer-indices {p-tid 2}}
                             {:q/type              :q.type.try/attempt
-                             :q/hash              -1173658820
                              :q.try/message-index 1}
                             {:q/type               :q.type.try/snapshot
                              :q.try/proc-id        p-id
@@ -1024,7 +1017,6 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 1}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              1564761239
                            :q.try/message-index 1}
                           {:q/type :q.type.try/attempt-nil
                            :q/hash 1564761239}
@@ -1032,7 +1024,6 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 2}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              156908796
                            :q.try/message-index 1}
                           {:q/type :q.type.try/attempt-nil
                            :q/hash 156908796}
@@ -1096,19 +1087,15 @@
                                  :q.try/proc-id        p-id
                                  :q.try/tailer-indices {p-tid 1}}
                                 {:q/type              :q.type.try/attempt
-                                 :q/hash              1564761239
                                  :q.try/message-index 1}
                                 {:q/type              :q.type.try/attempt-error
-                                 :q/hash              1564761239
                                  :q.try/message-index 1}
                                 {:q/type               :q.type.try/snapshot
                                  :q.try/proc-id        p-id
                                  :q.try/tailer-indices {p-tid 2}}
                                 {:q/type              :q.type.try/attempt
-                                 :q/hash              156908796
                                  :q.try/message-index 1}
                                 {:q/type              :q.type.try/attempt-error
-                                 :q/hash              156908796
                                  :q.try/message-index 2}
                                 {:q/type               :q.type.try/snapshot
                                  :q.try/proc-id        p-id
@@ -1166,7 +1153,6 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 1}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              1564761239
                            :q.try/message-index 1}]}))
             (q/stop-graph! g))))
 
@@ -1206,13 +1192,11 @@
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
-                         :q/hash              1564761239
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
-                         :q/hash              1564761239
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
@@ -1281,7 +1265,6 @@
                            :q.try/proc-id        p-id
                            :q.try/tailer-indices {p-tid 1}}
                           {:q/type              :q.type.try/attempt
-                           :q/hash              1564761239
                            :q.try/message-index 1}]}))
             (q/stop-graph! g))))
 
@@ -1322,7 +1305,6 @@
                          :q.try/proc-id        p-id
                          :q.try/tailer-indices {p-tid 1}}
                         {:q/type              :q.type.try/attempt
-                         :q/hash              1564761239
                          :q.try/message-index 1}
                         {:q/type               :q.type.try/snapshot
                          :q.try/proc-id        p-id
@@ -1410,8 +1392,8 @@
                      Overhead used : 2.035620 ns"
 
   (qt/stress-test 1000000)
-  "Elapsed time: 5766.9555 msecs"
-  "Elapsed time: 32252.300833 msecs"
+  "Elapsed time: 4312.960375 msecs"
+  "Elapsed time: 29921.640709 msecs"
   {:success? true
    :counts   {:cues.test/error    0
               :cues.queue-test/s1 1000000

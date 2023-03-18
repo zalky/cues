@@ -603,9 +603,8 @@
     :q.type.try/attempt))
 
 (defn- attempt-map
-  [process attempt-hash msg-index]
+  [process msg-index]
   {:q/type              (attempt-type process)
-   :q/hash              attempt-hash
    :q.try/message-index msg-index})
 
 (defn- attempt-nil-map
@@ -682,7 +681,7 @@
           (let [i (.index doc)]
             (->> i
                  (attempt-index a)
-                 (attempt-map process h)
+                 (attempt-map process)
                  (write try-a))
             i)
           (catch Throwable e
@@ -742,16 +741,16 @@
 
 (defn- recover-attempt
   [try-tailer {{q :queue} :appender
-               :as        process} {i :q.try/message-index
-                                    h :q/hash}]
+               :as        process} {i :q.try/message-index}]
   (with-tailer [t q]
-    (when-not (= h (-> t
+    (let [snapshot (next-snapshot try-tailer)]
+      (when-not (= (hash snapshot)
+                   (-> t
                        (to-index i)
                        (read-with-hash)
                        (:q/meta)
                        (:q/hash)))
-      (->> (next-snapshot try-tailer)
-           (recover-snapshot process)))))
+        (recover-snapshot process snapshot)))))
 
 (defn- recover-attempt-error
   [try-tailer process msg]
