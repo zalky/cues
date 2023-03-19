@@ -160,11 +160,10 @@
                        {:id ::s2}
                        {:id   ::alts
                         :fn   ::map-reduce
-                        :in   {:q1 ::s1
+                        :alts {:q1 ::s1
                                :q2 ::s2}
                         :out  {:out ::q1}
-                        :opts {:alts   true
-                               :map-fn (fn [x]
+                        :opts {:map-fn (fn [x]
                                          (case x
                                            1 (deliver d1 true)
                                            2 (deliver d2 true)
@@ -745,11 +744,10 @@
                        :processors [{:id ::s1}
                                     {:id ::s2}
                                     {:id   ::interrupt-alts
-                                     :in   {:in-1 ::s1
+                                     :alts {:in-1 ::s1
                                             :in-2 ::s2}
                                      :out  {:out ::q1}
-                                     :opts {:alts       true
-                                            :interrupt? true
+                                     :opts {:interrupt? true
                                             :done       done-1}}
                                     {:id   ::d2
                                      :fn   ::done-counter
@@ -783,10 +781,9 @@
                        :processors [{:id ::s1}
                                     {:id ::s2}
                                     {:id   ::interrupt-alts
-                                     :in   {:in-2 ::s2
+                                     :alts {:in-2 ::s2
                                             :in-1 ::s1}
-                                     :out  {:out ::q1}
-                                     :opts {:alts true}}
+                                     :out  {:out ::q1}}
                                     {:id   ::done
                                      :in   {:in ::q1}
                                      :opts {:done done-1

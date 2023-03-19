@@ -632,7 +632,7 @@
 (defn- error-config
   [{:keys [config strategy] :as process}]
   (-> config
-      (select-keys [:id :topics :types :in :out
+      (select-keys [:id :topics :types :in :alts :out
                     :tailers :appenders])
       (assoc :strategy strategy)))
 
@@ -932,7 +932,7 @@
     {(:id (:queue t)) msg}))
 
 (defn- processor-read
-  [{{alts :alts} :opts
+  [{{alts :alts} :config
     read-fn!!    :read-fn!!
     :as          process}]
   (let [f (cond
@@ -984,10 +984,11 @@
          p)))))
 
 (defn log-processor-error
-  [{{:keys [id in out]
+  [{{:keys [id in alts out]
      :or   {in  "source"
             out "sink"}} :config} e]
-  (log/error e (format "%s (%s -> %s)" id in out)))
+  (->> (format "%s (%s -> %s)" id (or alts in) out)
+       (log/error e)))
 
 (defn- get-error-fn
   [{q :error-queue}]
@@ -1095,9 +1096,9 @@
           (throw))))
 
 (defn- get-processor-fn
-  [{{:keys [in out tailers appenders]
+  [{{:keys [in alts out tailers appenders]
      :as   config} :config}]
-  (let [rev       (set/map-invert in)
+  (let [rev       (set/map-invert (or alts in))
         t         (set/map-invert tailers)
         a         (set/map-invert appenders)
         filter-fn (msg-filter-fn config)]
@@ -1462,7 +1463,7 @@
       b)))
 
 (defn- parse-processor
-  [[t {:keys [id in out tailers appenders opts]
+  [[t {:keys [id in out alts tailers appenders opts]
        :as   config}]]
   (cutil/some-entries
    (case t
@@ -1472,7 +1473,7 @@
                :opts     opts}
      {:id             id
       :type           t
-      :bind/in        (parse-bindings in)
+      :bind/in        (parse-bindings (or alts in))
       :bind/out       (parse-bindings out)
       :bind/tailers   (parse-bindings tailers)
       :bind/appenders (parse-bindings appenders)
@@ -1525,20 +1526,21 @@
   (s/keys :opt-un [::fn ::types ::topics]))
 
 (s/def ::sink
-  (s/merge (s/keys :req-un [:any/in])
+  (s/merge (s/keys :req-un [(or :many/alts :any/in)])
            ::generic))
 
 (s/def ::join
-  (s/merge (s/keys :req-un [:any/in :one/out])
+  (s/merge (s/keys :req-un [(or :many/alts :any/in) :one/out])
            ::generic))
 
 (s/def ::join-fork
-  (s/merge (s/keys :req-un [:any/in :many/out])
+  (s/merge (s/keys :req-un [(or :many/alts :any/in) :many/out])
            ::generic))
 
 (s/def ::imperative
-  (s/merge (s/keys :req-un [:any/in (or ::tailers ::appenders)]
-                   :opt-un [:one/out])
+  (s/merge (s/keys :opt-un [:one/out]
+                   :req-un [(or :many/alts :any/in)
+                            (or ::tailers ::appenders)])
            ::generic))
 
 (s/def ::source
@@ -1546,12 +1548,17 @@
          #(not (contains? % :in))
          #(not (contains? % :out))))
 
+(s/def ::alts-or-in
+  #(not (and (contains? % :alts)
+             (contains? % :in))))
+
 (s/def ::processor
-  (s/or ::imperative ::imperative
-        ::join-fork  ::join-fork
-        ::join       ::join
-        ::source     ::source
-        ::sink       ::sink))
+  (s/and ::alts-or-in
+         (s/or ::imperative ::imperative
+               ::join-fork  ::join-fork
+               ::join       ::join
+               ::source     ::source
+               ::sink       ::sink)))
 
 (s/def ::processors
   (s/coll-of ::processor :kind sequential?))

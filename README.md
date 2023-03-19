@@ -759,8 +759,9 @@ The intent of this is two-fold:
 
 Besides sources and sinks, there are other variations of processors.
 
-Join processors take messages from multiple queues, blocking until all
-queues have a message available:
+Join processors take messages from multiple queues, blocking until
+_all_ queues have a message available, and write to a single output
+queue:
 
 ```clj
 {:id  ::join-processor
@@ -770,15 +771,14 @@ queues have a message available:
 ```
 
 There is an `alts!!` variation of a join processor that will take the
-first message available from a set of queues.
+first message available from a set of input queues.
 
 ```clj
 {:id   ::join-processor
- :in   {:s1 ::crawler-old
+ :alts {:s1 ::crawler-old
         :s2 ::crawler-new
         :s3 ::crawler-experimental}
- :out  {:output ::tx}
- :opts {:alts true}}
+ :out  {:output ::tx}}
 ```
 
 Forks write messages to multiple queues:
