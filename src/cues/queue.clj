@@ -558,6 +558,14 @@
           (some->> (try-read t)
                    (vector t))))))
 
+(defmacro unhandled-error
+  [msg & body]
+  `(try
+     ~@body
+     (catch Exception e#
+       (log/error e# (format "Unhandled error: %s" ~msg))
+       (throw e#))))
+
 (defmulti processor
   "Analogous to Kafka processors. No default method."
   (constantly nil))
@@ -768,7 +776,7 @@
   (recover-tailers process snapshot)
   (assoc process
          :retry true
-         :retry-alts-tailer-id id))
+         :retry-tailer-id id))
 
 (defn- next-snapshot
   "Reads back to the next snapshot on the try queue. Also return the
@@ -826,18 +834,14 @@
 (defmethod persistent-recover ::exactly-once
   [{{q :queue} :try-appender
     :as        process}]
-  (try
+  (unhandled-error "tailer recovery"
     (with-tailer [t q]
       (set-direction t :backward)
       (or (some->> t
                    (to-end)
                    (read-with-hash)
                    (recover t process))
-          process))
-    (catch InterruptedException e (throw e))
-    (catch Exception e
-      (log/error e "Could not recover tailers")
-      false)))
+          process))))
 
 (defn- snapshot-unblock
   "Record tailer indices for unblock recovery."
@@ -848,10 +852,6 @@
        (doall)
        (assoc process :snapshot-unblock)))
 
-(defn throw-interrupt!
-  []
-  (throw (InterruptedException. "Interrupted processor")))
-
 (defn- recover-unblock
   "Reset tailer positions and interrupts the processor."
   ([process]
@@ -859,8 +859,7 @@
   ([{snapshot :snapshot-unblock} pred?]
    (doseq [[tailer i] snapshot]
      (when (pred? tailer)
-       (to-index tailer i)))
-   (throw-interrupt!)))
+       (to-index tailer i)))))
 
 (defn- merge-deep
   [& args]
@@ -890,7 +889,7 @@
    out))
 
 (defn- merge-meta
-  [in out process]
+  [process in out]
   (when out
     (if (merge-meta? process)
       (if-let [m (merge-meta-in in)]
@@ -898,14 +897,40 @@
         out)
       out)))
 
-(defn- get-result
+(defn- default-result-fn
   [process result]
   (get result (-> process
                   (:appender)
                   (:queue)
                   (:id))))
 
-(defn- zip-read!!
+(defn- default-run-fn
+  [{f         :fn
+    appender  :appender
+    result-fn :result-fn
+    :or       {result-fn default-result-fn}
+    :as       process} in]
+  (let [out (f process in)]
+    (when appender
+      (->> out
+           (merge-meta process in)
+           (result-fn process)))))
+
+(defn- processor-run
+  [{:keys [run-fn error-fn]
+    :or   {run-fn default-run-fn}
+    :as   process} in]
+  {:pre [error-fn run-fn]}
+  (try
+    (->> in
+         (run-fn process)
+         (persistent-attempt process))
+    (catch InterruptedException e (throw e))
+    (catch Exception e
+      (error-fn process e)
+      process)))
+
+(defn- zip-processor-read!!
   "Blocking read from all tailers into a map. Returns nil if any one of
   the blocking tailers returns nil."
   [{tailers :tailers}]
@@ -914,81 +939,53 @@
     (when (every? some? vals)
       (zipmap keys vals))))
 
-(defn- alts-tailers
-  "Filters the set of alts tailers to a single tailer when processor
-  attempting to retry deliver of messages."
-  [{tailers :tailers
-    retry   :retry
-    id      :retry-alts-tailer-id}]
+(defn- alts-processor-tailers
+  "On delivery retries, filters the list of tailers to the one that was
+  previously read from."
+  [{tailers  :tailers
+    retry-id :retry-tailer-id}]
   (cond->> tailers
-    id (filter (comp #{id} :id))))
+    retry-id (filter (comp #{retry-id} :id))))
 
-(defn- alts-read!!
+(defn- alts-processor-read!!
   [process]
-  (when-let [[t msg] (-> process
-                         (alts-tailers)
-                         (alts!!))]
-    (persistent-snapshot-alts process t)
-    {(:id (:queue t)) msg}))
+  (let [tailers (alts-processor-tailers process)]
+    (when-let [[t msg] (alts!! tailers)]
+      (persistent-snapshot-alts process t)
+      {(:id (:queue t)) msg})))
 
 (defn- processor-read
   [{{alts :alts} :config
-    read-fn!!    :read-fn!!
+    read-fn      :read-fn
     :as          process}]
-  (let [f (cond
-            read-fn!! read-fn!!
-            alts      alts-read!!
-            :else     zip-read!!)]
-    (f process)))
-
-(defn- run-fn!!
-  [{f         :fn
-    appender  :appender
-    result-fn :result-fn
-    :or       {result-fn get-result}
-    :as       process}]
-  (if-let [in (processor-read process)]
-    (let [out (f process in)]
-      (when appender
-        (->> (merge-meta in out process)
-             (result-fn process))))
-    (recover-unblock process)))
-
-(defn- processor-snapshot
-  [process]
-  (try
-    (-> process
-        (snapshot-unblock)
-        (persistent-snapshot))
-    (catch InterruptedException e (throw e))
-    (catch Exception e
-      (log/error e "Could not snapshot tailers")
-      false)))
+  (unhandled-error "processor read"
+    (let [f (cond
+              read-fn read-fn
+              alts    alts-processor-read!!
+              :else   zip-processor-read!!)]
+      (f process))))
 
 (defn- reset-processor
   [process]
-  (dissoc process :retry :retry-alts-tailer-id))
+  (dissoc process :retry :retry-tailer-id))
 
 (defn- processor-step
-  [{:keys [run-fn error-fn]
-    :or   {run-fn run-fn!!}
-    :as   process}]
-  {:pre [error-fn run-fn]}
-  (when-let [p (processor-snapshot process)]
-    (reset-processor
-     (try
-       (persistent-attempt p (run-fn p))
-       (catch InterruptedException e (throw e))
-       (catch Exception e
-         (error-fn p e)
-         p)))))
+  [process]
+  (let [p (unhandled-error "processor snapshot"
+            (-> process
+                (snapshot-unblock)
+                (persistent-snapshot)))]
+    (if-let [in (processor-read p)]
+      (->> in
+           (processor-run p)
+           (reset-processor))
+      (recover-unblock p))))
 
 (defn log-processor-error
   [{{:keys [id in alts out]
      :or   {in  "source"
             out "sink"}} :config} e]
-  (->> (format "%s (%s -> %s)" id (or alts in) out)
-       (log/error e)))
+  (log/error e (format "%s (%s -> %s)" id (or alts in) out)))
 
 (defn- get-error-fn
   [{q :error-queue}]
@@ -1000,7 +997,7 @@
              (ex-data)
              (persistent-attempt p))))))
 
-(defn- wrap-catch-error
+(defn- wrap-processor-error
   [handler]
   (fn [process msgs]
     (err/on-error (error-message process msgs)
@@ -1109,13 +1106,14 @@
         (wrap-guard-no-out)
         (wrap-msg-filter filter-fn)
         (wrap-msg-keys rev out)
-        (wrap-catch-error))))
+        (wrap-processor-error))))
 
 (defn- processor-handlers
   [process]
-  (-> process
-      (assoc :error-fn (get-error-fn process))
-      (assoc :fn (get-processor-fn process))))
+  (unhandled-error "building processor handlers"
+    (-> process
+        (assoc :error-fn (get-error-fn process))
+        (assoc :fn (get-processor-fn process)))))
 
 (defn- close-tailers!
   [process]
@@ -1128,13 +1126,17 @@
     (close-tailer! t)))
 
 (defn- processor-loop
-  [process]
+  [{:keys [id] :as process}]
   (try
     (loop [p (-> process
                  (processor-handlers)
                  (persistent-recover))]
       (when (continue? p)
         (recur (processor-step p))))
+    (catch InterruptedException e (throw e))
+    (catch Exception e
+      (log/error "Processor: exit on unhandled error" id)
+      (throw e))
     (finally
       (close-tailers! process))))
 
@@ -1181,16 +1183,19 @@
             :appender     (appender out)
             :try-appender (appender try-queue)))))
 
-(defn- fork-run-fn!!
-  "Conditionally passes message from one input queue, usually a backing
-  queue, onto to the fork output queue, iff a message for the output
-  queue exists in the map."
-  [{{oid :id} :queue/out
-    [tailer]  :tailers
-    :as       process}]
-  (if-let [msg (read!! tailer)]
-    (get msg oid)
-    (recover-unblock process)))
+(defn- fork-read!!
+  [{[tailer] :tailers}]
+  (read!! tailer))
+
+(defn- fork-run-fn
+  "Conditionally passes input message from one input queue, usually a
+  backing queue, onto to the fork output queue, iff a message for the
+  output queue exists in the map."
+  [process in]
+  (->> process
+       (:queue/out)
+       (:id)
+       (get in)))
 
 (defn- start-jf-join
   [process unblock fork-queue]
@@ -1200,14 +1205,16 @@
       (start-impl unblock start-join)))
 
 (defn- start-jf-fork
+  "Always remove :errors queues: all exceptions must be unhandled."
   [{:keys [id uid queue/out]
     :as   process} unblock fork-queue]
   (doall
    (for [{oid :id :as o} out]
-     (-> process
+     (-> (dissoc process :errors)
          (assoc :id        (combined-id id oid)
                 :uid       (combined-id uid oid)
-                :run-fn    fork-run-fn!!
+                :run-fn    fork-run-fn
+                :read-fn   fork-read!!
                 :queue/in  fork-queue
                 :queue/out o)
          (start-impl unblock start-join)))))
@@ -1217,7 +1224,12 @@
   (combined-id (:uid process) :fork))
 
 (defn- start-join-fork
-  "An backing queue used to coordinate between fork and join."
+  "Many to many processors are modelled as a single join loop connected
+  to one or more fork loops via a backing queue. Once a join loop has
+  committed to the delivery of the output messages, each fork
+  processing loop must deliver the message or raise an unhandled
+  exception. This ensures that while not all messages will arrive at
+  the same time, the delivery will be atomic."
   [process unblock]
   (let [q (->> (fork-id process)
                (assoc process :uid)

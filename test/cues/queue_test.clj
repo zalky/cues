@@ -20,6 +20,10 @@
   ([done ms]
    (deref done ms false)))
 
+(defn throw-interrupt!
+  []
+  (throw (InterruptedException. "Interrupted processor")))
+
 (t/deftest parse-processor-impl-test
   (let [parse #(first (s/conform ::q/processor %))]
     (is (= (parse {:id ::source})
@@ -605,7 +609,7 @@
   [{{:keys [done interrupt?]} :opts} {msg :in}]
   (when interrupt?
     (try
-      (q/throw-interrupt!)
+      (throw-interrupt!)
       (finally (deliver done true))))
   {:out msg})
 
@@ -723,7 +727,7 @@
   [{{:keys [done interrupt?]} :opts} msgs]
   (when interrupt?
     (try
-      (q/throw-interrupt!)
+      (throw-interrupt!)
       (finally (deliver done true))))
   {:out (first (vals msgs))})
 
@@ -847,7 +851,7 @@
   [{{:keys [done interrupt?]} :opts} {:keys [in-1 in-2]}]
   (when interrupt?
     (try
-      (q/throw-interrupt!)
+      (throw-interrupt!)
       (finally (deliver done true))))
   {:out-1 in-1
    :out-2 in-2})
@@ -1222,7 +1226,7 @@
     (write-impl appender msg)
     (when (= (:q/type msg) :q.type/attempt-output)
       (try
-        (throw (q/throw-interrupt!))
+        (throw (throw-interrupt!))
         (finally (deliver done true))))))
 
 (t/deftest exactly-once-write-interrupt-test
@@ -1331,7 +1335,7 @@
   (fn [appender msg]
     (attempt-full-impl appender msg)
     (try
-      (throw (q/throw-interrupt!))
+      (throw (throw-interrupt!))
       (finally (deliver done true)))))
 
 (t/deftest exactly-once-attempt-full-then-interrupt-test
