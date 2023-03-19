@@ -646,7 +646,7 @@
 
 (defn- error-message
   [process msgs]
-  {:q/type            :q.type.err/processor
+  {:q/type            :q.type.error/processor
    :err.proc/config   (error-config process)
    :err.proc/messages msgs})
 
@@ -750,7 +750,7 @@
 
 (defmethod persistent-attempt ::exactly-once
   [process msg]
-  (err/on-error (error-message process msg)
+  (err/wrap-error (error-message process msg)
     (if (and (:appender process) msg)
       (attempt-full process msg)
       (attempt-nil process))
@@ -1000,7 +1000,7 @@
 (defn- wrap-processor-error
   [handler]
   (fn [process msgs]
-    (err/on-error (error-message process msgs)
+    (err/wrap-error (error-message process msgs)
       (handler process msgs))))
 
 (defn- rename-keys

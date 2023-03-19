@@ -422,7 +422,7 @@
         (is (done? done-errors))
         (is (= (-> (q/all-graph-messages g)
                    (update ::qt/error qt/simplify-exceptions))
-               {::qt/error [{:q/type            :q.type.err/processor
+               {::qt/error [{:q/type            :q.type.error/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id       ::pipe-error
                                                  :in       {:in ::s1}
@@ -431,7 +431,7 @@
                              :err.proc/messages {::s1 {:x      1
                                                        :q/meta {:q/queue {::s1 {:q/t 1}}}}}
                              :q/meta            {:q/queue {::qt/error {:q/t 1}}}}
-                            {:q/type            :q.type.err/processor
+                            {:q/type            :q.type.error/processor
                              :err/cause         {:cause "Oops"}
                              :err.proc/config   {:id       ::pipe-error
                                                  :in       {:in ::s1}
@@ -998,7 +998,7 @@
 
 (defmethod q/processor ::handled-error
   [{{:keys [counter]} :opts} {msg :in}]
-  (err/on-error {:err/more "context"}
+  (err/wrap-error {:err/context "context"}
     (if (= (swap! counter inc) 1)
       (throw (Exception. "Oops"))
       {:out msg})))
@@ -1046,12 +1046,13 @@
         (is (done? done-3))
         (is (= (-> (q/all-graph-messages g)
                    (update ::qt/error qt/simplify-exceptions))
-               {::qt/error [{:q/type            :q.type.err/processor
+               {::qt/error [{:q/type            :q.type/error
                              :err.proc/config   {:id       ::handled-error
                                                  :in       {:in ::s1}
                                                  :out      {:out ::q1}
                                                  :strategy ::q/exactly-once}
                              :err.proc/messages #:cues.queue-test{:s1 {:x 1}}
+                             :err/context       "context"
                              :err/cause         {:cause "Oops"}}]
                 ::s1       [{:x 1} {:x 2}]
                 ::q1       [{:x 2}]
@@ -1182,14 +1183,14 @@
             (is (= @logged 2))
             (is (= (-> (q/all-graph-messages g)
                        (update ::qt/error qt/simplify-exceptions))
-                   {::qt/error [{:q/type            :q.type.err/processor
+                   {::qt/error [{:q/type            :q.type.error/processor
                                  :err.proc/config   {:id       ::map-reduce
                                                      :in       {:in ::s1}
                                                      :out      {:out ::q1}
                                                      :strategy ::q/exactly-once}
                                  :err.proc/messages {:x 2}
                                  :err/cause         {:cause "Failed after write"}}
-                                {:q/type            :q.type.err/processor
+                                {:q/type            :q.type.error/processor
                                  :err.proc/config   {:id       ::map-reduce
                                                      :in       {:in ::s1}
                                                      :out      {:out ::q1}
