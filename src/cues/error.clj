@@ -42,7 +42,7 @@
          m     (Throwable->map cause)
          data  (error-data context e)]
      (ex-info (error-message context e)
-              (merge {:q/type    :q.type/error
+              (merge {:q/type    :q.type.err/error
                       :err/cause m}
                      data)
               cause))))

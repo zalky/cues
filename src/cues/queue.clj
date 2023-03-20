@@ -641,12 +641,12 @@
   [{:keys [config strategy] :as process}]
   (-> config
       (select-keys [:id :topics :types :in :alts :out
-                    :tailers :appenders])
+                    :errors :tailers :appenders])
       (assoc :strategy strategy)))
 
 (defn- error-message
   [process msgs]
-  {:q/type            :q.type.error/processor
+  {:q/type            :q.type.err/processor
    :err.proc/config   (error-config process)
    :err.proc/messages msgs})
 
