@@ -1063,13 +1063,10 @@
 (defn- topics-filter
   [values msgs]
   (reduce-kv
-   (fn [m id msg]
-     (or (some->> values
-                  (select-keys (:q/topics msg))
-                  (not-empty)
-                  (assoc msg :q/topics)
-                  (assoc m id))
-         m))
+   (fn [m id {t :q/topics :as msg}]
+     (if (and (map? t) (some t values))
+       (assoc m id msg)
+       m))
    nil
    msgs))
 

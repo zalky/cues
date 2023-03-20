@@ -458,7 +458,8 @@
     (is (= (#'q/topics-filter [::t1 ::t2] msg)
            msg))
     (is (= (#'q/topics-filter [::t1] msg)
-           {::q {:q/topics {::t1 ::message}}}))
+           {::q {:q/topics {::t1 ::message
+                            ::t2 ::message}}}))
     (is (= (#'q/topics-filter [::other] msg)
            nil))
     (is (= (#'q/topics-filter [::t1 ::t2]
@@ -475,8 +476,10 @@
                                                 ::t2 ::message}}
                                ::q2 {:q/topics {::t1 ::message
                                                 ::t2 ::message}}})
-           {::q1 {:q/topics {::t1 ::message}}
-            ::q2 {:q/topics {::t1 ::message}}}))
+           {::q1 {:q/topics {::t1 ::message
+                             ::t2 ::message}}
+            ::q2 {:q/topics {::t1 ::message
+                             ::t2 ::message}}}))
     (is (= (#'q/topics-filter [::t2]
                               {::q1 {:q/topics {::t2 ::message}}
                                ::q2 {:q/topics {::t1 ::message}}})
@@ -487,7 +490,8 @@
            {::q2 {:q/topics {::t1 ::message}}}))
     (is (= (#'q/topics-filter [::t2]
                               {::q1 {:q/topics {::t1 ::message}}
-                               ::q2 {:q/topics {::t1 ::message}}})))))
+                               ::q2 {:q/topics {::t1 ::message}}})
+           nil))))
 
 (defmethod q/processor ::processor-a
   [{:keys [system]} {msg :in}]
@@ -507,9 +511,10 @@
     (is (fn? f))
     (is (nil? (f process nil)))
     (is (nil? (f process {})))
-    (is (nil? (f process {::q-other {}})))
-    (is (nil? (f process {::q-other {:q/topics {}}})))
-    (is (nil? (f process {::q-other {:q/topics {::other ::message}}})))
+    (is (nil? (f process {::q1 {}})))
+    (is (nil? (f process {::q1 {:q/topics nil}})))
+    (is (nil? (f process {::q1 {:q/topics false}})))
+    (is (nil? (f process {::q1 {:q/topics {}}})))
     (is (nil? (f process {::q1 {:q/topics {::other ::message}}})))
     (is (= (f process {::q1 {:q/topics {::doc ::message}}})
            {::tx {:q/topics  {::doc ::message}
