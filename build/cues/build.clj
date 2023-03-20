@@ -16,17 +16,17 @@
 
 (defn graph-spec
   [db]
-  {:id          ::example
-   :source      ::source
-   :error-queue ::error
-   :queue-opts  {::tx {:queue-meta #{:tx/t}}}
-   :processors  [{:id ::source}
-                 {:id  ::inc-x
-                  :in  {:input ::source}
-                  :out {:output ::tx}}
-                 {:id   ::store-x
-                  :in   {:input ::tx}
-                  :opts {:db db}}]})
+  {:id         ::example
+   :source     ::source
+   :errors     ::errors
+   :queue-opts {::tx {:queue-meta #{:tx/t}}}
+   :processors [{:id ::source}
+                {:id     ::inc-x
+                 :in     {:input ::source}
+                 :out    {:output ::tx}}
+                {:id   ::store-x
+                 :in   {:input ::tx}
+                 :opts {:db db}}]})
 
 (defonce db
   (atom {}))

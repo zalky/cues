@@ -1161,19 +1161,19 @@
             logged (atom 0)]
         (with-redefs [q/write               (write-handled-error done-1 (atom 0) 9)
                       q/log-processor-error (fn [_ _] (swap! logged inc))]
-          (let [g (->> {:id          ::graph
-                        :error-queue ::qt/error
-                        :processors  [{:id ::s1}
-                                      {:id   ::map-reduce
-                                       :in   {:in ::s1}
-                                       :out  {:out ::q1}
-                                       :opts {:map-fn inc
-                                              :to     [:out]}}
-                                      {:id   ::done-counter
-                                       :in   {:in p-id}
-                                       :opts {:done    done-2
-                                              :counter (atom 0)
-                                              :n       7}}]}
+          (let [g (->> {:id         ::graph
+                        :errors     ::qt/error
+                        :processors [{:id ::s1}
+                                     {:id   ::map-reduce
+                                      :in   {:in ::s1}
+                                      :out  {:out ::q1}
+                                      :opts {:map-fn inc
+                                             :to     [:out]}}
+                                     {:id   ::done-counter
+                                      :in   {:in p-id}
+                                      :opts {:done    done-2
+                                             :counter (atom 0)
+                                             :n       7}}]}
                        (q/graph)
                        (q/start-graph!))]
             (q/send! g ::s1 {:x 1})

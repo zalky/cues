@@ -88,7 +88,7 @@
   [[sym :as binding] & body]
   `(let ~binding
      (let [~sym (-> ~sym
-                    (util/assoc-nil :error-queue ::error)
+                    (util/assoc-nil :errors ::error)
                     (update :queue-opts util/assoc-nil ::q/default {:queue-meta #{:q/t}})
                     (q/graph)
                     (q/start-graph!))]

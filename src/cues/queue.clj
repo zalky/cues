@@ -622,7 +622,7 @@
 
 (defn- attempt-type
   [process]
-  (if (= (:id (:error-queue process))
+  (if (= (:id (:errors process))
          (:id (:queue (:appender process))))
     :q.type/attempt-error
     :q.type/attempt-output))
@@ -806,7 +806,7 @@
 
 (defn- recover-attempt-error
   [try-tailer process msg]
-  (let [p (->> (:error-queue process)
+  (let [p (->> (:errors process)
                (appender)
                (assoc process :appender))]
     (recover-attempt-output try-tailer p msg)))
@@ -988,14 +988,17 @@
   (log/error e (format "%s (%s -> %s)" id (or alts in) out)))
 
 (defn- get-error-fn
-  [{q :error-queue}]
-  (let [a (some-> q appender)]
+  [{q :errors}]
+  (if-let [a (some-> q appender)]
     (fn [process e]
       (let [p (assoc process :appender a)]
         (log-processor-error process e)
         (->> (err/error e)
              (ex-data)
-             (persistent-attempt p))))))
+             (persistent-attempt p))))
+    (fn [process e]
+      (log-processor-error process e)
+      (throw e))))
 
 (defn- wrap-processor-error
   [handler]
@@ -1050,7 +1053,7 @@
                       :config
                       :tailers
                       :appenders
-                      :error-queue
+                      :errors
                       :strategy
                       :delivery-hash
                       :system
@@ -1370,20 +1373,22 @@
     true     (assoc :state (atom nil))))
 
 (defn- build-processor
-  [{error :error-queue
-    :as   g} {id  :id
-              in  :bind/in
-              out :bind/out
-              t   :bind/tailers
-              a   :bind/appenders
-              :as process}]
+  [{g-e :errors
+    :as g} {id  :id
+            in  :bind/in
+            out :bind/out
+            t   :bind/tailers
+            a   :bind/appenders
+            e   :errors
+            :or {e g-e}
+            :as process}]
   (cond-> (build-config g process)
-    id    (assoc :uid (combined-id (:id g) id))
-    in    (assoc :queue/in (get-q g in))
-    out   (assoc :queue/out (get-q g out))
-    error (assoc :error-queue (get-q g error))
-    t     (assoc :queue/tailers (get-q g t))
-    a     (assoc :queue/appenders (get-q g a))))
+    id  (assoc :uid (combined-id (:id g) id))
+    e   (assoc :errors (get-q g e))
+    in  (assoc :queue/in (get-q g in))
+    out (assoc :queue/out (get-q g out))
+    t   (assoc :queue/tailers (get-q g t))
+    a   (assoc :queue/appenders (get-q g a))))
 
 (defn- build-processors
   [g processors]
@@ -1393,11 +1398,13 @@
        (update g :processors cutil/into-once)))
 
 (defn- collect-processor-queues
-  [{:bind/keys [in out appenders tailers]}]
+  [{:keys      [errors]
+    :bind/keys [in out appenders tailers]}]
   (concat (util/seqify in)
           (util/seqify out)
           (util/seqify appenders)
-          (util/seqify tailers)))
+          (util/seqify tailers)
+          (util/seqify errors)))
 
 (defn- build-queue
   [{opts :queue-opts :as g} id]
@@ -1407,10 +1414,10 @@
          (queue id))))
 
 (defn- build-queues
-  [{:keys [error-queue] :as g} processors]
+  [{:keys [errors] :as g} processors]
   (->> processors
        (mapcat collect-processor-queues)
-       (cons error-queue)
+       (cons errors)
        (distinct)
        (keep (partial build-queue g))
        (map (juxt :id identity))
@@ -1475,7 +1482,7 @@
       b)))
 
 (defn- parse-processor
-  [[t {:keys [id in out alts tailers appenders opts]
+  [[t {:keys [id in out alts tailers appenders errors opts]
        :as   config}]]
   (cutil/some-entries
    (case t
@@ -1489,6 +1496,7 @@
       :bind/out       (parse-bindings out)
       :bind/tailers   (parse-bindings tailers)
       :bind/appenders (parse-bindings appenders)
+      :errors         errors
       :config         config
       :opts           opts})))
 
@@ -1607,6 +1615,8 @@
 (defn collect-graph-queues
   [{:keys [processors queues]}]
   (concat
+   (->> (vals processors)
+        (keep :errors))
    (->> (vals processors)
         (keep :fork-queue))
    (->> (vals processors)
