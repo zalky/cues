@@ -1686,6 +1686,15 @@
            (io/file)
            (cutil/delete-file))))))
 
+(defn close-and-delete-try-queues!
+  [g]
+  (doseq [q (->> (:processors g)
+                 (vals)
+                 (mapcat :try-queues))]
+    (stop-graph! g)
+    (close-graph! g)
+    (delete-queue! q true)))
+
 (defn close-and-delete-graph!
   "Closes the graph and all queues and deletes all queue data."
   ([g]
