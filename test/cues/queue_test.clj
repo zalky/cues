@@ -663,7 +663,8 @@
               p-id [{:q/type           :q.type/snapshot
                      :q/proc-id        p-id
                      :q/tailer-indices {p-tid 1}}]}))
-      (q/stop-graph! g))
+      (q/stop-graph! g)
+      (q/close-graph! g))
 
     ;; After restarting the graph both messages are delivered, and we
     ;; can see the subsequent attempt in the backing queue.
@@ -779,7 +780,8 @@
                      :q/tailer-indices {p-tid1 1 p-tid2 1}}
                     {:q/type      :q.type/snapshot-alts
                      :q/tailer-id p-tid2}]}))
-      (q/stop-graph! g))
+      (q/stop-graph! g)
+      (q/close-graph! g))
 
     ;; After restarting the graph both messages are delivered, and we
     ;; can see the subsequent attempt in the backing queue.
@@ -926,7 +928,8 @@
               p-jid2 [{:q/type           :q.type/snapshot
                        :q/proc-id        p-jid2
                        :q/tailer-indices {p-fid2 1}}]}))
-      (q/stop-graph! g))
+      (q/stop-graph! g)
+      (q/close-graph! g))
 
     ;; After restarting the graph both messages are delivered, and we
     ;; can see the subsequent attempt in the backing queue.
@@ -1214,7 +1217,8 @@
                            :q/tailer-indices {p-tid 1}}
                           {:q/type          :q.type/attempt-output
                            :q/message-index 1}]}))
-            (q/stop-graph! g))))
+            (q/stop-graph! g)
+            (q/close-graph! g))))
 
       ;; After restarting the graph both messages are delivered, and we
       ;; can see the subsequent attempt in the backing queue.
@@ -1336,7 +1340,8 @@
                            :q/tailer-indices {p-tid 1}}
                           {:q/type          :q.type/attempt-output
                            :q/message-index 1}]}))
-            (q/stop-graph! g))))
+            (q/stop-graph! g)
+            (q/close-graph! g))))
 
       ;; After restarting the graph the message is not re-delivered,
       ;; and we can see there are not subsequent attempts in the try
