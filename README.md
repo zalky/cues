@@ -30,7 +30,8 @@ not provide blocking or persistent tailers.
 7. Zero-configuration defaults
 8. Not distributed
 
-By themselves, the blocking queues are similar to what durable-queue
+By themselves, the blocking queues are similar to what
+[durable-queue](https://github.com/clj-commons/durable-queue)
 provides, just one or more orders of magnitude faster. They also come
 with an API that aligns more closely with the persistence model: you
 get queues, tailers, and appenders, and addressable, immutable indices
@@ -38,8 +39,9 @@ that you can traverse forwards and backwards.
 
 The processors and graphs are meant to provide a dead-simple version
 of the abstractions you get in a distributed messaging system like
-Kafka. But there are no clusters to configure, no partitions to worry
-about, and it is several orders of magnitude faster.
+[Kafka](https://kafka.apache.org/) But there are no clusters to
+configure, no partitions to worry about, and it is several orders of
+magnitude faster.
 
 Ultimately the goals of Cues are fairly narrow: a minimal DSL for
 connecting message processors into graphs using persistent queues in a
