@@ -622,7 +622,7 @@
   [g]
   (->> (:processors g)
        (vals)
-       (mapcat :try-queues)
+       (mapcat q/get-try-queues)
        (map (juxt :id q/all-messages))
        (into {})))
 

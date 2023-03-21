@@ -1292,60 +1292,64 @@
 
 (defmethod start-processor-impl ::source
   [{:keys [queue/out] :as process}]
-  (->> (appender out)
-       (assoc process :appender)))
+  {:appender (appender out)})
 
 (defmethod start-processor-impl ::sink
   [{:keys [id] :as process}]
   (let [unblock (atom nil)]
     (-> process
-        (merge (start-impl process unblock start-sink))
+        (start-impl unblock start-sink)
         (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::join
   [{:keys [id] :as process}]
   (let [unblock (atom nil)]
     (-> process
-        (merge (start-impl process unblock start-join))
+        (start-impl unblock start-join)
         (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::join-fork
   [process]
   (let [unblock (atom nil)]
     (-> process
-        (merge (start-join-fork process unblock))
+        (start-join-fork unblock)
         (assoc :unblock unblock))))
 
 (defmethod start-processor-impl ::imperative
   [{:keys [id] :as process}]
   (let [unblock (atom nil)]
     (-> process
-        (merge (start-impl process unblock start-imperative))
+        (start-impl unblock start-imperative)
         (assoc :unblock unblock))))
 
 (defn- ensure-done
-  [{:keys [futures]}]
-  (when futures
-    (doseq [r futures]
-      (try @r (catch Exception e)))))
+  [{:keys [impl] :as process}]
+  (when (and impl @impl)
+    (doseq [r (:futures impl)]
+      (try @r (catch Exception e))))
+  process)
 
 (defn start-processor!
-  [{:keys [id state]
+  [{:keys [id state impl]
     :as   process}]
   (if (compare-and-set! state nil ::started)
     (do (log/info "Starting" id)
-        (ensure-done process)
-        (start-processor-impl process))
+        (->> (ensure-done process)
+             (start-processor-impl)
+             (reset! impl))
+        process)
     process))
 
 (defn stop-processor!
-  [{:keys [id state unblock]
+  [{:keys [id state impl]
     :as   process}]
-  (if (compare-and-set! state ::started ::stopped)
+  (if (compare-and-set! state ::started nil)
     (do (log/info "Stopping" id)
-        (when unblock (reset! unblock true))
-        (ensure-done process)
-        (assoc process :state (atom nil)))
+        (some-> impl
+                (deref)
+                (:unblock)
+                (reset! true))
+        (ensure-done process))
     process))
 
 (defn- get-one-q
@@ -1367,7 +1371,8 @@
     system   (assoc :system system)
     strategy (assoc :strategy strategy)
     opts     (assoc :queue-opts (::default opts))
-    true     (assoc :state (atom nil))))
+    true     (assoc :state (atom nil))
+    true     (assoc :impl (atom nil))))
 
 (defn- build-processor
   [{g-e :errors
@@ -1379,7 +1384,7 @@
             e   :errors
             :or {e g-e}
             :as process}]
-  (cond-> (build-config g process)
+  (cond-> process
     id  (assoc :uid (combined-id (:id g) id))
     e   (assoc :errors (get-q g e))
     in  (assoc :queue/in (get-q g in))
@@ -1391,6 +1396,7 @@
   [g processors]
   (->> processors
        (map (partial build-processor g))
+       (map (partial build-config g))
        (map (juxt :id identity))
        (update g :processors cutil/into-once)))
 
@@ -1609,16 +1615,22 @@
   (->> (partial cutil/map-vals stop-processor!)
        (update graph :processors)))
 
+(defn get-try-queues
+  [process]
+  (some-> process :impl deref :try-queues))
+
+(defn get-fork-queue
+  [process]
+  (some-> process :impl deref :fork-queue))
+
 (defn collect-graph-queues
   [{:keys [processors queues]}]
-  (concat
-   (->> (vals processors)
-        (keep :errors))
-   (->> (vals processors)
-        (keep :fork-queue))
-   (->> (vals processors)
-        (mapcat :try-queues))
-   (->> (vals queues))))
+  (let [p  (vals processors)
+        xs (concat (keep :errors p)
+                   (keep get-fork-queue p)
+                   (mapcat get-try-queues p)
+                   (vals queues))]
+    (cutil/distinct-by :id xs)))
 
 (defn close-graph!
   [graph]
@@ -1630,14 +1642,16 @@
   graph)
 
 (defn send!
-  ([g tx]
-   (send! g nil tx))
-  ([{p           :processors
-     {s :source} :config
-     :as         g} source msg]
-   (if-let [s (get p (or source s))]
-     (write (:appender s) msg)
-     (throw (ex-info "Could not find source" {:id source})))))
+  ([graph msg]
+   (send! graph nil msg))
+  ([{p      :processors
+     config :config} source msg]
+   (let [id        (or source (:source config))
+         {:keys [type impl]
+          :as   s} (get p id)]
+     (if (and s (= type ::source))
+       (write (:appender @impl) msg)
+       (throw (ex-info "Could not find source" {:id id}))))))
 
 (defn messages
   "Returns a lazy list of all remaining messages."
@@ -1690,7 +1704,7 @@
   [g]
   (doseq [q (->> (:processors g)
                  (vals)
-                 (mapcat :try-queues))]
+                 (mapcat get-try-queues))]
     (stop-graph! g)
     (close-graph! g)
     (delete-queue! q true)))
