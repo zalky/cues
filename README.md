@@ -39,7 +39,7 @@ that you can traverse forwards and backwards.
 
 The processors and graphs are meant to provide a dead-simple version
 of the abstractions you get in a distributed messaging system like
-[Kafka](https://kafka.apache.org/) But there are no clusters to
+[Kafka](https://kafka.apache.org/). But there are no clusters to
 configure, no partitions to worry about, and it is several orders of
 magnitude faster.
 
@@ -190,7 +190,7 @@ But connecting queues into a system is also straightforward:
 ```
 
 A similar example graph is defined in the
-[`cuedex.build`](https://github.com/zalky/cues/blob/main/build/cues/build.clj)
+[`cues.build`](https://github.com/zalky/cues/blob/main/build/cues/build.clj)
 namespace. To try it, clone this repo and run the following from the
 project root:
 
