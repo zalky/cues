@@ -187,6 +187,34 @@ But connecting queues into a system is also straightforward:
  ::tx     ({:x 2} {:x 3})}
 ```
 
+A similar example graph is defined in the
+[`cuedex.build`](https://github.com/zalky/cues/blob/main/build/cues/build.clj)
+namespace. To try it, clone this repo and run the following from the
+project root:
+
+```clj
+clojure -X:server:repl
+```
+
+Or if you're on Java 11 or 17:
+
+```clj
+clojure -X:server:repl:cues/j17
+```
+
+Then connect your REPL and try the following:
+
+```clj
+user> (require '[cues.repl :as repl])
+nil
+user> (q/send! (repl/graph) {:x 1})
+83464099463168
+user> (q/all-graph-messages (repl/graph))
+{:cues.build/error  (),
+ :cues.build/source ({:x 1}),
+ :cues.build/tx     ({:x 2, :q/meta {:tx/t 83464099463168}})}
+```
+
 The rest of this document just covers these two APIs in more detail.
 
 ## Primitives: Queues, Tailers, and Appenders <a name="queues"></a>
@@ -1283,32 +1311,6 @@ See the [`deps.edn`](https://github.com/zalky/cues/blob/main/deps.edn)
 file for how to configure Runway aliases, and the
 [`cues.build`](https://github.com/zalky/cues/blob/main/build/cues/build.clj)
 namespace for the `com.stuartsierra.component` example Cues graph.
-
-To work with the example graph, clone this repo and run the following
-from the project root:
-
-```clj
-clojure -X:server:repl
-```
-
-Or if you're on Java 11 or 17:
-
-```clj
-clojure -X:server:repl:cues/j17
-```
-
-Then connect your REPL and try the following:
-
-```clj
-user> (require '[cues.repl :as repl])
-nil
-user> (q/send! (repl/graph) {:x 1})
-83464099463168
-user> (q/all-graph-messages (repl/graph))
-{:cues.build/error  (),
- :cues.build/source ({:x 1}),
- :cues.build/tx     ({:x 2, :q/meta {:tx/t 83464099463168}})}
-```
 
 ## Data Serialization <a name="serialization"></a>
 
