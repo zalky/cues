@@ -178,7 +178,7 @@
 
 (defn- tailer-opts
   [tid]
-  {:id (some-> tid id->str)})
+  {:id (when tid (str "t" (hash tid)))})
 
 (defn tailer
   "Creates a tailer.
