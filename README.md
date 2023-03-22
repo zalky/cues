@@ -6,16 +6,16 @@
 [![Clojars Project](https://img.shields.io/clojars/v/io.zalky/cues?labelColor=blue&color=green&style=flat-square&logo=clojure&logoColor=fff)](https://clojars.org/io.zalky/cues)
 
 Queues on cue: low-latency persistent blocking queues, processors, and
-graphs via ChronicleQueue.
+graphs via Chronicle Queue.
 
 For when distributed systems like Kafka are too much, durable-queue is
 not enough, and both are too slow.
 
-[ChronicleQueue](https://github.com/OpenHFT/Chronicle-Queue) is a
+[Chronicle Queue](https://github.com/OpenHFT/Chronicle-Queue) is a
 broker-less queue framework that provides microsecond latencies
 (sometimes less) when persisting data to
 disk. [Tape](https://github.com/mpenet/tape) is an excellent wrapper
-around ChronicleQueue that exposes an idiomatic Clojure API, but does
+around Chronicle Queue that exposes an idiomatic Clojure API, but does
 not provide blocking or persistent tailers.
 
 **Cues** extends both to provide:
@@ -57,7 +57,7 @@ Cues could be used for:
   model
 - Prototyping or mocking up a distributed architecture
 
-To give you a sense of how it scales, from the ChronicleQueue
+To give you a sense of how it scales, from the Chronicle Queue
 [FAQ](https://github.com/OpenHFT/Chronicle-Queue/blob/develop/docs/FAQ.adoc):
 
 > Our largest Chronicle Queue client pulls in up to 100 TB into a
@@ -98,7 +98,7 @@ mechanics.
 9.  [Runway: Developing Stateful Systems](#runway)
 10. [Data Serialization](#serialization)
 11. [Java 11 & 17](#java)
-12. [ChronicleQueue Analytics (disabled by default)](#analytics)
+12. [Chronicle Queue Analytics (disabled by default)](#analytics)
 
 ## Installation <a name="installation"></a>
 
@@ -117,10 +117,10 @@ explicitly in your deps:
 org.slf4j/slf4j-nop {:mvn/version "2.0.6"}
 ```
 
-Java compatibility: ChronicleQueue targets [LTS Java releases 8, 11,
+Java compatibility: Chronicle Queue targets [LTS Java releases 8, 11,
 and
 17](https://github.com/OpenHFT/OpenHFT/blob/ea/docs/Java-Version-Support.adoc). See
-the additional notes on running ChronicleQueue on [Java 11 &
+the additional notes on running Chronicle Queue on [Java 11 &
 17](#java).
 
 ## Quick Start <a name="quick-start"></a>
@@ -1327,7 +1327,7 @@ documentation for more details.
 
 ## Java 11 & 17 <a name="java"></a>
 
-ChronicleQueue [works under both Java 11 and
+Chronicle Queue [works under both Java 11 and
 17](https://chronicle.software/chronicle-support-java-17/). However
 some JVM options need to be set:
 
@@ -1347,9 +1347,9 @@ See the Cues
 [`deps.edn`](https://github.com/zalky/cues/blob/main/deps.edn#L30-L38)
 file for what this looks like as an alias.
 
-## ChronicleQueue Analytics (disabled by default) <a name="analytics"></a>
+## Chronicle Queue Analytics (disabled by default) <a name="analytics"></a>
 
-ChronicleQueue is a great open source product, but it enables
+Chronicle Queue is a great open source product, but it enables
 [analytics
 collection](https://github.com/OpenHFT/Chronicle-Map/blob/ea/DISCLAIMER.adoc)
 by default (opt-out) to improve its product.
@@ -1371,7 +1371,7 @@ file in the user's home directory.
 ## Getting Help
 
 First you probably want to check out the
-[ChronicleQueue](https://github.com/OpenHFT/Chronicle-Queue)
+[Chronicle Queue](https://github.com/OpenHFT/Chronicle-Queue)
 documentation, as well as their
 [FAQ](https://github.com/OpenHFT/Chronicle-Queue/blob/ea/docs/FAQ.adoc).
 
