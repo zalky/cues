@@ -117,7 +117,10 @@ explicitly in your deps:
 org.slf4j/slf4j-nop {:mvn/version "2.0.6"}
 ```
 
-Also see the additional notes on running ChronicleQueue on [Java 11 &
+Java compatibility: ChronicleQueue targets [LTS Java releases 8, 11,
+and
+17](https://github.com/OpenHFT/OpenHFT/blob/ea/docs/Java-Version-Support.adoc). See
+the additional notes on running ChronicleQueue on [Java 11 &
 17](#java).
 
 ## Quick Start <a name="quick-start"></a>
