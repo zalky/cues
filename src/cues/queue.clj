@@ -539,12 +539,12 @@
 
 (defn- alts
   [tailers]
-  (reduce
-   (fn [_ t]
+  (some
+   (fn [t]
      (when-let [msg (read t)]
-       (rm-watches t)
-       (reduced [t msg])))
-   nil
+       (doseq [t* tailers]
+         (rm-watches t*))
+       [t msg]))
    tailers))
 
 (defn alts!!
@@ -1651,10 +1651,10 @@
    (send! graph nil msg))
   ([{p      :processors
      config :config} source msg]
-   (let [id        (or source (:source config))
-         {:keys [type impl]
-          :as   s} (get p id)]
-     (if (and s (= type ::source))
+   (let [id           (or source (:source config))
+         {impl :impl
+          type :type} (get p id)]
+     (if (= type ::source)
        (write (:appender @impl) msg)
        (throw (ex-info "Could not find source" {:id id}))))))
 
