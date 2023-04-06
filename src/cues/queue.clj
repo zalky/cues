@@ -1330,7 +1330,7 @@
 (defn- ensure-done
   [{:keys [impl] :as process}]
   (when (and impl @impl)
-    (doseq [r (:futures impl)]
+    (doseq [r (:futures @impl)]
       (try @r (catch Exception e))))
   process)
 
