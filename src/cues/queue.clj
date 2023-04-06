@@ -565,11 +565,10 @@
 
 (defmacro unhandled-error
   [msg & body]
-  `(try
-     ~@body
-     (catch Exception e#
-       (log/error e# (format "Unhandled error: %s" ~msg))
-       (throw e#))))
+  `(err/wrap-error
+     {:q/type      :q.type.err/unhandled-error
+      :err/message ~msg}
+     ~@body))
 
 (defmulti processor
   "Analogous to Kafka processors. No default method."
@@ -671,12 +670,14 @@
 
 (defmethod persistent-snapshot-alts ::exactly-once
   [{try-a :try-appender
-    retry :retry} tailer]
+    retry :retry
+    :as   process} tailer]
   {:pre [(appender? try-a)]}
   (when-not retry
     (->> (:id tailer)
          (snapshot-alts-map)
-         (write try-a))))
+         (write try-a)))
+  process)
 
 (def ^:dynamic add-attempt-hash
   "Only rebind in testing."
@@ -847,6 +848,25 @@
                    (read-with-hash)
                    (recover t process))
           process))))
+
+(defmethod persistent-snapshot ::at-most-once
+  [process]
+  process)
+
+(defmethod persistent-snapshot-alts ::at-most-once
+  [process _]
+  process)
+
+(defmethod persistent-attempt ::at-most-once
+  [{a :appender :as process} msg]
+  (err/wrap-error (error-message process msg)
+    (when (and a msg)
+      (write a msg))
+    process))
+
+(defmethod persistent-recover ::at-most-once
+  [process]
+  process)
 
 (defn- snapshot-unblock
   "Record tailer indices for unblock recovery."
@@ -1140,7 +1160,7 @@
         (recur (processor-step p))))
     (catch InterruptedException e (throw e))
     (catch Exception e
-      (log/error "Processor: exit on unhandled error" id)
+      (log/error e "Processor: exit on unhandled error" id)
       (throw e))
     (finally
       (close-tailers! process))))

@@ -105,7 +105,7 @@ mechanics.
 Just add the following dependency in your `deps.edn`:
 
 ```clj
-io.zalky/cues {:mvn/version "0.2.0"}
+io.zalky/cues {:mvn/version "0.2.1"}
 ```
 
 If you do not already have SLF4J bindings loaded in your project,
@@ -945,7 +945,7 @@ once_ message delivery for graph processors, but the approach depends
 on whether a processor has side-effects or not.
 
 For pure processors that do _not_ have side effects, _exactly once_
-delivery semantics works out of the box. You do not have to do
+delivery semantics work out of the box. You do not have to do
 anything.
 
 For processors that _do_ have side-effects, like sink processors, Cues
@@ -1090,6 +1090,46 @@ error, then re-throws it.
 Of course, you can always catch and handle errors yourself, and place
 them on arbitrary queues of your choice. Ultimately handled errors are
 just like any other data in the graph.
+
+### At Most Once Message Delivery
+
+There are [generally three
+strategies](https://medium.com/@madhur25/meaning-of-at-least-once-at-most-once-and-exactly-once-delivery-10e477fafe16)
+that exist for message delivery in systems where failure is a
+possibility:
+
+1. At most once
+2. At least once
+3. Exactly once
+
+Cues provides `::q/exactly-once` message delivery by default, but you
+can optionally configure graphs to use `::q/at-most-once` delivery
+semantics instead:
+
+```clj
+(require '[cues.queue :as q])
+
+(defn example-graph
+  [db]
+  {:id         ::example
+   :strategy   ::q/at-most-once
+   :processors [{:id ::source}
+                ...]})
+```
+
+With _at most once_ semantics any processor step is only ever
+attempted once, and never retried. While failures may result in
+_dropped messages_, this provides two modest benefits if that is not a
+problem:
+
+1. Approximately 30-40% faster graph performance
+2. You can avoid implementing idempotency on side-effects using the
+   delivery hash: processor steps are simply never retried
+
+In contrast _at least once_ semantics pose no meaningful benefits with
+respect to _exactly once_ delivery, and so outside of processors with
+side-effects (where it is the default and [explained
+previously](#errors)) that strategy is not provided.
 
 ## Queue Configuration <a name="configuration"></a>
 

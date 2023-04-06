@@ -1396,6 +1396,55 @@
           (q/stop-graph! g)
           (q/close-and-delete-graph! g true))))))
 
+(t/deftest at-most-once-processor-unhandled-interrupt-test
+  ;; The processor :fn throws an unhandled interrupt during the method
+  ;; execution. The processor quits due to the unhandled
+  ;; interrupt. With at-most-once semantics, when the processor is
+  ;; restarted, it continues processing messages, having dropped the
+  ;; message that caused the error.
+  (log/with-level :fatal
+    (let [done (promise)
+          g    (->> {:id         ::graph
+                     :strategy   ::q/at-most-once
+                     :processors [{:id ::s1}
+                                  {:id   ::interrupt
+                                   :in   {:in ::s1}
+                                   :out  {:out ::q1}
+                                   :opts {:interrupt? true
+                                          :done       done}}
+                                  {:id ::done
+                                   :in {:in ::q1}}]}
+                    (q/graph)
+                    (q/start-graph!))]
+      (q/send! g ::s1 {:x 1})
+      (q/send! g ::s1 {:x 2})
+      (is (done? done))
+      (is (= (q/all-graph-messages g)
+             {::s1 [{:x 1} {:x 2}]
+              ::q1 []}))
+      (q/stop-graph! g)
+      (q/close-graph! g))
+
+    ;; After restarting the graph only the second message is delivered.
+    (let [done (promise)
+          g    (->> {:id         ::graph
+                     :processors [{:id ::s1}
+                                  {:id  ::interrupt
+                                   :in  {:in ::s1}
+                                   :out {:out ::q1}}
+                                  {:id   ::done
+                                   :in   {:in ::q1}
+                                   :opts {:done done
+                                          :x-n  2}}]}
+                    (q/graph)
+                    (q/start-graph!))]
+      (is (done? done))
+      (is (= (q/all-graph-messages g)
+             {::s1 [{:x 1} {:x 2}]
+              ::q1 [{:x 2}]}))
+      (q/stop-graph! g)
+      (q/close-and-delete-graph! g true))))
+
 (t/deftest issue-1-test
   (let [done-1 (promise)
         done-2 (promise)
