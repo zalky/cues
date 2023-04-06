@@ -1,6 +1,6 @@
 .PHONY: test
 
-version-number  = 0.2.0
+version-number  = 0.2.1
 group-id        = io.zalky
 artifact-id     = cues
 description     = Queues on cue: persistent blocking queues, processors, and topologies via ChronicleQueue

@@ -105,7 +105,7 @@ mechanics.
 Just add the following dependency in your `deps.edn`:
 
 ```clj
-io.zalky/cues {:mvn/version "0.2.0"}
+io.zalky/cues {:mvn/version "0.2.1"}
 ```
 
 If you do not already have SLF4J bindings loaded in your project,
