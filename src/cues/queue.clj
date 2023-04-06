@@ -670,12 +670,14 @@
 
 (defmethod persistent-snapshot-alts ::exactly-once
   [{try-a :try-appender
-    retry :retry} tailer]
+    retry :retry
+    :as   process} tailer]
   {:pre [(appender? try-a)]}
   (when-not retry
     (->> (:id tailer)
          (snapshot-alts-map)
-         (write try-a))))
+         (write try-a)))
+  process)
 
 (def ^:dynamic add-attempt-hash
   "Only rebind in testing."
@@ -846,6 +848,25 @@
                    (read-with-hash)
                    (recover t process))
           process))))
+
+(defmethod persistent-snapshot ::at-most-once
+  [process]
+  process)
+
+(defmethod persistent-snapshot-alts ::at-most-once
+  [process _]
+  process)
+
+(defmethod persistent-attempt ::at-most-once
+  [{a :appender :as process} msg]
+  (err/wrap-error (error-message process msg)
+    (when (and a msg)
+      (write a msg))
+    process))
+
+(defmethod persistent-recover ::at-most-once
+  [process]
+  process)
 
 (defn- snapshot-unblock
   "Record tailer indices for unblock recovery."
