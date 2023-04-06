@@ -565,11 +565,10 @@
 
 (defmacro unhandled-error
   [msg & body]
-  `(try
-     ~@body
-     (catch Exception e#
-       (log/error e# (format "Unhandled error: %s" ~msg))
-       (throw e#))))
+  `(err/wrap-error
+     {:q/type      :q.type.err/unhandled-error
+      :err/message ~msg}
+     ~@body))
 
 (defmulti processor
   "Analogous to Kafka processors. No default method."
@@ -1140,7 +1139,7 @@
         (recur (processor-step p))))
     (catch InterruptedException e (throw e))
     (catch Exception e
-      (log/error "Processor: exit on unhandled error" id)
+      (log/error e "Processor: exit on unhandled error" id)
       (throw e))
     (finally
       (close-tailers! process))))
