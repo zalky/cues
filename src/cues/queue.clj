@@ -173,12 +173,16 @@
 
 (defn- tailer-id
   [queue id]
-  (when id
-    (combined-id id (:id queue))))
+  (if id
+    (combined-id id (:id queue))
+    (->> (cutil/uuid)
+         (str "tailer")
+         (keyword))))
 
 (defn- tailer-opts
-  [tid]
-  {:id (when tid (str "t" (hash tid)))})
+  [id tid]
+  (when (and id tid)
+    {:id (str "t" (hash tid))}))
 
 (defn tailer
   "Creates a tailer.
@@ -193,7 +197,7 @@
   ([queue id unblock]
    {:pre [(queue? queue)]}
    (let [tid  (tailer-id queue id)
-         opts (tailer-opts tid)
+         opts (tailer-opts id tid)
          t    (tail/make (:queue-impl queue) opts)]
      (prime-tailer
       {:type        ::tailer
@@ -201,6 +205,7 @@
        :unblock     unblock
        :queue       queue
        :dirty       (atom false)
+       :persistent  (boolean id)
        :tailer-impl t}))))
 
 (defn appender

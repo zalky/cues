@@ -1,5 +1,6 @@
 (ns cues.queue-test
-  (:require [clojure.spec.alpha :as s]
+  (:require [clojure.java.io :as io]
+            [clojure.spec.alpha :as s]
             [clojure.test :as t :refer [is]]
             [cues.error :as err]
             [cues.queue :as q]
@@ -1394,6 +1395,24 @@
                          :q/tailer-indices {d-tid 2}}]}))
           (q/stop-graph! g)
           (q/close-and-delete-graph! g true))))))
+
+(t/deftest issue-1-test
+  (let [done-1 (promise)
+        done-2 (promise)
+        q      (q/queue ::tmp {:queue-path ".cues-tmp"})
+        t1     (q/tailer q)
+        t2     (q/tailer q)
+        a      (q/appender q)]
+    (try
+      (future (deliver done-1 (q/read!! t1)))
+      (future (deliver done-2 (q/read!! t2)))
+      (Thread/sleep 1)
+      (q/write a {:x 1})
+      (is (= (done? done-1) {:x 1}))
+      (is (= (done? done-2) {:x 1}))
+      (finally
+        (q/delete-queue! q true)
+        (cutil/delete-file (io/file ".cues-tmp"))))))
 
 (def stress-fixtures
   (t/join-fixtures [qt/with-warn]))
